@@ -1,15 +1,6 @@
 if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
   globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__ = true;
 
-  const START_VERIFY_INTERVAL_MS = 250;
-  const START_VERIFY_TIMEOUT_MS = 6000;
-  const START_SIGNAL_COOLDOWN_MS = 1200;
-
-  const COMPLETION_POLL_MS = 800;
-  const MIN_COMPLETION_MS = 2500;
-  const QUIET_WINDOW_MS = 2600;
-  const STABLE_TICKS_REQUIRED = 4;
-
   const SEND_KEYWORDS = [
     'send',
     'submit',
@@ -18,17 +9,11 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     'generate',
     'create',
     'imagine',
-    'render',
-    'start',
-    'continue',
     '전송',
     '보내기',
     '질문',
     '생성',
-    '만들기',
-    '실행',
-    '이미지 생성',
-    '보내기'
+    '실행'
   ];
 
   const STOP_KEYWORDS = [
@@ -38,332 +23,69 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     'halt',
     'stop generating',
     'stop response',
-    'cancel generation',
     '응답 중지',
     '생성 중지',
     '중지',
-    '취소',
-    '중단'
+    '취소'
   ];
 
-  const BUSY_KEYWORDS = [
-    'thinking',
-    'generating',
-    'creating',
-    'rendering',
-    'researching',
-    'searching',
-    'processing',
-    'working',
-    'loading',
-    '답변 생성',
-    '생성 중',
-    '생각 중',
-    '처리 중',
-    '렌더링 중',
-    '검색 중'
-  ];
-
-  const IGNORE_SEND_KEYWORDS = [
-    'retry',
-    'regenerate',
+  const COPY_KEYWORDS = [
     'copy',
-    'share',
-    'login',
-    'sign in',
-    'sign up',
-    'settings',
-    'profile',
-    'delete',
-    'remove'
+    'copy response',
+    'copy text',
+    'copy message',
+    '복사',
+    '답변 복사',
+    '응답 복사',
+    '텍스트 복사'
   ];
 
-  const PROVIDERS = [
-    {
-      id: 'chatgpt',
-      host: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/i,
-      sendSelectors: [
-        'button[data-testid="send-button"]',
-        'button[aria-label*="Send"]'
-      ],
-      stopSelectors: [
-        'button[data-testid="stop-button"]',
-        'button[aria-label*="Stop"]'
-      ],
-      outputSelectors: [
-        '[data-message-author-role="assistant"]',
-        '[data-testid*="assistant"]',
-        '.markdown'
-      ],
-      busySelectors: [
-        'button[data-testid="stop-button"]',
-        '[aria-label*="Stop"]'
-      ]
-    },
-    {
-      id: 'claude',
-      host: /(^|\.)claude\.ai$|(^|\.)code\.claude\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[title*="Send"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[data-testid*="assistant"]',
-        '[class*="prose"]',
-        'article'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'gemini',
-      host: /(^|\.)gemini\.google\.com$|(^|\.)aistudio\.google\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Run"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[data-test-id*="response"]',
-        '[class*="response"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'copilot',
-      host: /(^|\.)copilot\.microsoft\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[data-testid*="message"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'grok',
-      host: /(^|\.)grok\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[data-testid*="assistant"]',
-        '[class*="message"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'perplexity',
-      host: /(^|\.)perplexity\.ai$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Ask"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[class*="answer"]',
-        '[class*="thread"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'poe',
-      host: /(^|\.)poe\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[class*="Message"]',
-        '[class*="ChatMessage"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'deepseek',
-      host: /(^|\.)deepseek\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[class*="message"]',
-        '[class*="answer"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'mistral',
-      host: /(^|\.)mistral\.ai$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[class*="message"]',
-        '[class*="response"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'midjourney',
-      host: /(^|\.)midjourney\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Generate"]',
-        'button[aria-label*="Create"]',
-        'button[aria-label*="Imagine"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        'main',
-        '[class*="grid"]',
-        '[class*="feed"]'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]',
-        'progress'
-      ]
-    },
-    {
-      id: 'cursor',
-      host: /(^|\.)cursor\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]',
-        'button[aria-label*="Run"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[data-testid*="assistant"]',
-        '[class*="message"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'qwen',
-      host: /(^|\.)qwen\.ai$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[class*="message"]',
-        '[class*="answer"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    },
-    {
-      id: 'kimi',
-      host: /(^|\.)kimi\.com$/i,
-      sendSelectors: [
-        'button[aria-label*="Send"]',
-        'button[aria-label*="Submit"]'
-      ],
-      stopSelectors: [
-        'button[aria-label*="Stop"]',
-        'button[aria-label*="Cancel"]'
-      ],
-      outputSelectors: [
-        '[class*="message"]',
-        '[class*="answer"]',
-        'main'
-      ],
-      busySelectors: [
-        '[aria-busy="true"]',
-        '[role="progressbar"]'
-      ]
-    }
+  const IGNORE_COPY_KEYWORDS = [
+    'copy link',
+    'copy url',
+    'copy invite',
+    'copy code block',
+    'copy prompt',
+    'copy conversation'
   ];
 
-  function normalizeText(text = '') {
-    return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
+  const START_SIGNAL_COOLDOWN_MS = 1400;
+  const START_VERIFY_INTERVAL_MS = 250;
+  const START_VERIFY_TIMEOUT_MS = 5000;
+
+  const COMPLETION_POLL_MS = 900;
+  const MIN_COMPLETION_MS = 5000;
+  const QUIET_WINDOW_MS = 4200;
+  const NO_BUSY_WINDOW_MS = 1800;
+  const STABLE_TICKS_REQUIRED = 5;
+
+  let monitoring = false;
+  let observer = null;
+  let pollTimer = null;
+  let startVerifyTimer = null;
+
+  let promptStartedAt = 0;
+  let lastStartSignalAt = 0;
+
+  let lastMeaningfulChangeAt = 0;
+  let lastBusySeenAt = 0;
+  let lastOutputSignature = '';
+  let stableTickCount = 0;
+
+  let pendingStart = null;
+
+  function normalizeText(text) {
+    return String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 
-  function isVisible(element) {
-    if (!(element instanceof Element)) return false;
-    const style = window.getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
+  function isVisible(el) {
+    if (!(el instanceof Element)) return false;
+
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
 
     return (
       style.display !== 'none' &&
@@ -374,295 +96,312 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     );
   }
 
-  function elementText(element) {
-    if (!(element instanceof Element)) return '';
+  function elementText(el) {
+    if (!(el instanceof Element)) return '';
 
     return normalizeText(
       [
-        element.textContent,
-        element.getAttribute('aria-label'),
-        element.getAttribute('title'),
-        element.getAttribute('data-testid'),
-        element.getAttribute('data-state'),
-        element.getAttribute('name')
+        el.textContent,
+        el.getAttribute('aria-label'),
+        el.getAttribute('title'),
+        el.getAttribute('data-testid'),
+        el.getAttribute('data-state'),
+        el.getAttribute('name')
       ]
         .filter(Boolean)
         .join(' ')
     );
   }
 
-  function getProvider() {
-    const host = location.hostname;
-    return (
-      PROVIDERS.find((provider) => provider.host.test(host)) || {
-        id: 'generic',
-        sendSelectors: [],
-        stopSelectors: [],
-        outputSelectors: ['main', '[role="main"]', 'article'],
-        busySelectors: ['[aria-busy="true"]', '[role="progressbar"]']
-      }
-    );
-  }
-
-  const provider = getProvider();
-
-  function dedupeElements(elements) {
-    const seen = new Set();
-    const result = [];
-
-    for (const element of elements) {
-      if (!(element instanceof Element)) continue;
-      if (seen.has(element)) continue;
-      seen.add(element);
-      result.push(element);
-    }
-
-    return result;
-  }
-
-  function getVisibleElementsBySelector(selector) {
-    try {
-      return Array.from(document.querySelectorAll(selector)).filter(isVisible);
-    } catch (error) {
-      return [];
-    }
-  }
-
-  function getComposerCandidates() {
-    const selectors = [
-      'textarea',
-      '[contenteditable="true"]',
-      '[role="textbox"]',
-      'input[type="text"]',
-      'input:not([type])'
-    ];
-
-    return dedupeElements(
-      selectors.flatMap((selector) => getVisibleElementsBySelector(selector))
-    )
-      .filter((element) => {
-        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-          if (element.disabled || element.readOnly) return false;
-        }
-
-        const rect = element.getBoundingClientRect();
-        return rect.width >= 120 && rect.height >= 18;
-      })
-      .sort((a, b) => {
-        const rectA = a.getBoundingClientRect();
-        const rectB = b.getBoundingClientRect();
-
-        if (rectB.bottom !== rectA.bottom) {
-          return rectB.bottom - rectA.bottom;
-        }
-
-        return rectB.width * rectB.height - rectA.width * rectA.height;
-      });
-  }
-
   function getPrimaryComposer() {
-    return getComposerCandidates()[0] || null;
+    const candidates = Array.from(
+      document.querySelectorAll(
+        'textarea, [contenteditable="true"], [role="textbox"], input[type="text"], input:not([type])'
+      )
+    ).filter(isVisible);
+
+    candidates.sort((a, b) => {
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return rb.bottom - ra.bottom;
+    });
+
+    return candidates[0] || null;
   }
 
-  function getComposerText(element) {
-    if (!element) return '';
+  function getComposerText(el) {
+    if (!el) return '';
 
-    if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
-      return element.value || '';
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+      return el.value || '';
     }
 
-    return element.textContent || '';
+    return el.textContent || '';
   }
 
   function isPotentialSendButton(button) {
     if (!(button instanceof Element) || !isVisible(button)) return false;
     if (button.matches('[disabled], [aria-disabled="true"]')) return false;
 
-    const text = elementText(button);
-
-    if (!text) return false;
-    if (IGNORE_SEND_KEYWORDS.some((keyword) => text.includes(keyword))) return false;
-
-    if (provider.sendSelectors.some((selector) => button.matches(selector))) {
+    if (
+      button.matches('button[data-testid="send-button"]') ||
+      button.matches('button[aria-label*="Send"]') ||
+      button.matches('button[aria-label*="전송"]')
+    ) {
       return true;
     }
+
+    const text = elementText(button);
+    if (!text) return false;
+    if (STOP_KEYWORDS.some((keyword) => text.includes(keyword))) return false;
 
     return SEND_KEYWORDS.some((keyword) => text.includes(keyword));
   }
 
-  function isPotentialStopControl(element) {
-    if (!(element instanceof Element) || !isVisible(element)) return false;
+  function isPotentialStopButton(button) {
+    if (!(button instanceof Element) || !isVisible(button)) return false;
 
-    if (provider.stopSelectors.some((selector) => element.matches(selector))) {
+    if (
+      button.matches('button[data-testid="stop-button"]') ||
+      button.matches('button[aria-label*="Stop"]') ||
+      button.matches('button[aria-label*="Cancel"]') ||
+      button.matches('button[aria-label*="중지"]') ||
+      button.matches('button[aria-label*="취소"]')
+    ) {
       return true;
     }
 
-    const text = elementText(element);
+    const text = elementText(button);
+    if (!text) return false;
+
     return STOP_KEYWORDS.some((keyword) => text.includes(keyword));
   }
 
-  function hasActiveStopControl() {
-    const specific = provider.stopSelectors.flatMap((selector) =>
-      getVisibleElementsBySelector(selector)
-    );
-
-    if (specific.some((element) => isPotentialStopControl(element))) {
-      return true;
-    }
-
-    const generic = Array.from(
-      document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]')
+  function hasStopButton() {
+    const controls = Array.from(
+      document.querySelectorAll(
+        'button, [role="button"], input[type="button"], input[type="submit"]'
+      )
     ).filter(isVisible);
 
-    return generic.some((element) => isPotentialStopControl(element));
+    return controls.some((button) => isPotentialStopButton(button));
   }
 
   function hasBusyIndicator() {
-    const selectors = [
-      ...provider.busySelectors,
+    if (hasStopButton()) return true;
+
+    const busySelectors = [
       '[aria-busy="true"]',
       '[role="progressbar"]',
       'progress',
-      '[role="status"]',
       '[data-state="loading"]',
       '[class*="loading"]',
       '[class*="spinner"]',
-      '[class*="typing"]'
+      '[class*="typing"]',
+      '[class*="stream"]',
+      '[class*="generating"]',
+      '[class*="thinking"]'
     ];
 
-    const nodes = dedupeElements(
-      selectors.flatMap((selector) => getVisibleElementsBySelector(selector))
-    ).slice(0, 80);
+    for (const selector of busySelectors) {
+      const nodes = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+      if (nodes.length > 0) return true;
+    }
 
-    for (const node of nodes) {
+    const statusNodes = Array.from(
+      document.querySelectorAll('[role="status"], [aria-live], button, [role="button"]')
+    ).filter(isVisible);
+
+    const busyWords = [
+      'thinking',
+      'generating',
+      'processing',
+      'rendering',
+      'searching',
+      'working',
+      '답변 생성',
+      '생성 중',
+      '생각 중',
+      '처리 중',
+      '렌더링 중',
+      '검색 중'
+    ];
+
+    return statusNodes.some((node) => {
       const text = elementText(node);
-      if (
-        BUSY_KEYWORDS.some((keyword) => text.includes(keyword)) ||
-        node.matches('[aria-busy="true"], [role="progressbar"], progress')
-      ) {
+      return busyWords.some((word) => text.includes(word));
+    });
+  }
+
+  function getAssistantNodes() {
+    const selectors = [
+      '[data-message-author-role="assistant"]',
+      '[data-testid*="assistant"]',
+      '[class*="assistant"]',
+      'main article',
+      '[class*="message"]',
+      '[class*="response"]',
+      '[class*="answer"]'
+    ];
+
+    const seen = new Set();
+    const nodes = [];
+
+    for (const selector of selectors) {
+      let found = [];
+      try {
+        found = Array.from(document.querySelectorAll(selector));
+      } catch (error) {
+        found = [];
+      }
+
+      for (const node of found) {
+        if (!(node instanceof Element)) continue;
+        if (!isVisible(node)) continue;
+        if (seen.has(node)) continue;
+
+        const textLength = normalizeText(node.textContent || '').length;
+        const mediaCount = node.querySelectorAll('img, canvas, svg, video').length;
+
+        if (textLength === 0 && mediaCount === 0 && !node.matches('main, article')) {
+          continue;
+        }
+
+        seen.add(node);
+        nodes.push(node);
+      }
+    }
+
+    return nodes;
+  }
+
+  function getLatestAssistantNode() {
+    const nodes = getAssistantNodes();
+    return nodes.length ? nodes[nodes.length - 1] : null;
+  }
+
+  function getNearbyCopySearchRoots(baseNode) {
+    if (!(baseNode instanceof Element)) return [];
+
+    const roots = [baseNode];
+
+    if (baseNode.parentElement) roots.push(baseNode.parentElement);
+    if (baseNode.parentElement?.parentElement) roots.push(baseNode.parentElement.parentElement);
+
+    const next = baseNode.nextElementSibling;
+    if (next) roots.push(next);
+
+    return [...new Set(roots)];
+  }
+
+  function isPotentialCopyControl(control) {
+    if (!(control instanceof Element) || !isVisible(control)) return false;
+
+    const text = elementText(control);
+    if (!text) return false;
+
+    if (IGNORE_COPY_KEYWORDS.some((keyword) => text.includes(keyword))) {
+      return false;
+    }
+
+    if (
+      control.matches('button[aria-label*="Copy"]') ||
+      control.matches('button[aria-label*="복사"]') ||
+      control.matches('[data-testid*="copy"]') ||
+      control.matches('[title*="Copy"]') ||
+      control.matches('[title*="복사"]')
+    ) {
+      return true;
+    }
+
+    return COPY_KEYWORDS.some((keyword) => text.includes(keyword));
+  }
+
+  function hasResponseCopyAffordance() {
+    const latestNode = getLatestAssistantNode();
+    if (!latestNode) return false;
+
+    const roots = getNearbyCopySearchRoots(latestNode);
+
+    for (const root of roots) {
+      const controls = Array.from(
+        root.querySelectorAll(
+          'button, [role="button"], [data-testid], [title], .copy, [class*="copy"]'
+        )
+      ).filter(isVisible);
+
+      if (controls.some((control) => isPotentialCopyControl(control))) {
         return true;
       }
     }
 
-    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
-      .filter(isVisible)
-      .slice(0, 80);
-
-    return buttons.some((button) => {
-      const text = elementText(button);
-      return BUSY_KEYWORDS.some((keyword) => text.includes(keyword));
-    });
-  }
-
-  function getOutputRoots() {
-    const selectors = [
-      ...provider.outputSelectors,
-      '[data-message-author-role="assistant"]',
-      '[data-testid*="assistant"]',
-      '[class*="assistant"]',
-      '[class*="response"]',
-      '[class*="answer"]',
-      '[class*="message"]',
-      'main',
-      '[role="main"]',
-      'article'
-    ];
-
-    const roots = dedupeElements(
-      selectors.flatMap((selector) => getVisibleElementsBySelector(selector))
-    ).filter((element) => {
-      const textLength = normalizeText(element.textContent || '').length;
-      const mediaCount = element.querySelectorAll('img, canvas, video, svg').length;
-      return textLength > 0 || mediaCount > 0 || element.matches('main, [role="main"], article');
-    });
-
-    if (roots.length > 0) {
-      return roots.slice(0, 6);
-    }
-
-    const main = document.querySelector('main, [role="main"]');
-    if (main instanceof Element && isVisible(main)) {
-      return [main];
-    }
-
-    return [document.body];
+    return false;
   }
 
   function getOutputMetrics() {
+    const assistantNodes = getAssistantNodes();
+    const lastFew = assistantNodes.slice(-4);
+
     let textLength = 0;
-    let mediaCount = 0;
-    let busyNodeCount = 0;
+    let imageCount = 0;
+    let codeCount = 0;
 
-    for (const root of getOutputRoots()) {
-      const text = normalizeText(root.textContent || '');
-      textLength += Math.min(text.length, 12000);
-      mediaCount += root.querySelectorAll('img, canvas, video, svg').length;
-      busyNodeCount += root.querySelectorAll('[aria-busy="true"], [role="progressbar"], progress').length;
+    for (const node of lastFew) {
+      textLength += normalizeText(node.textContent || '').length;
+      imageCount += node.querySelectorAll('img, canvas, svg, video').length;
+      codeCount += node.querySelectorAll('pre, code, table').length;
     }
 
-    if (hasActiveStopControl()) {
-      busyNodeCount += 1;
-    }
-
-    const signature = `${textLength}:${mediaCount}:${busyNodeCount}`;
+    const busy = hasBusyIndicator() ? 1 : 0;
+    const hasCopy = hasResponseCopyAffordance() ? 1 : 0;
 
     return {
+      assistantCount: assistantNodes.length,
       textLength,
-      mediaCount,
-      busyNodeCount,
-      signature,
-      total: textLength + mediaCount * 250 + busyNodeCount * 100
+      imageCount,
+      codeCount,
+      busy,
+      hasCopy,
+      signature: `${assistantNodes.length}:${textLength}:${imageCount}:${codeCount}:${busy}:${hasCopy}`
     };
   }
 
-  let monitoring = false;
-  let completionObserver = null;
-  let completionTimer = null;
-  let verifyTimer = null;
-  let pendingAction = null;
+  function cleanupStartVerification() {
+    pendingStart = null;
 
-  let promptStartedAt = 0;
-  let lastStartSignalAt = 0;
-  let lastMutationAt = 0;
-  let lastOutputSignature = '';
-  let stableTickCount = 0;
-
-  function clearPendingAction() {
-    pendingAction = null;
-
-    if (verifyTimer) {
-      clearInterval(verifyTimer);
-      verifyTimer = null;
+    if (startVerifyTimer) {
+      clearInterval(startVerifyTimer);
+      startVerifyTimer = null;
     }
   }
 
   function cleanupMonitor() {
     monitoring = false;
-    clearPendingAction();
+    cleanupStartVerification();
 
-    if (completionObserver) {
-      completionObserver.disconnect();
-      completionObserver = null;
+    if (observer) {
+      observer.disconnect();
+      observer = null;
     }
 
-    if (completionTimer) {
-      clearInterval(completionTimer);
-      completionTimer = null;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
     }
 
     stableTickCount = 0;
+    lastMeaningfulChangeAt = 0;
+    lastBusySeenAt = 0;
     lastOutputSignature = '';
   }
 
   function notifyPromptStarted() {
     const now = Date.now();
 
-    if (now - lastStartSignalAt < START_SIGNAL_COOLDOWN_MS) {
-      return;
-    }
+    if (now - lastStartSignalAt < START_SIGNAL_COOLDOWN_MS) return;
 
     lastStartSignalAt = now;
-    clearPendingAction();
+    cleanupStartVerification();
 
     chrome.runtime.sendMessage({ type: 'LLM_PROMPT_STARTED' }, () => {
       chrome.runtime.lastError;
@@ -679,75 +418,61 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     });
   }
 
-  function evaluateStartEvidence(state) {
-    const now = Date.now();
-    const elapsed = now - state.createdAt;
-
-    const currentMetrics = getOutputMetrics();
-    const currentComposer = getPrimaryComposer();
-    const currentComposerText = normalizeText(getComposerText(currentComposer));
-    const previousComposerText = normalizeText(state.beforeComposerText);
-
-    const outputChanged =
-      currentMetrics.signature !== state.beforeMetrics.signature ||
-      currentMetrics.total > state.beforeMetrics.total + 40;
-
-    const composerChanged = currentComposerText !== previousComposerText;
-    const composerCleared =
-      previousComposerText.length > 0 &&
-      currentComposerText.length <= Math.max(0, Math.floor(previousComposerText.length * 0.25));
-
-    const busy = hasBusyIndicator() || hasActiveStopControl();
-
-    if (busy && (outputChanged || composerChanged || elapsed > 800)) {
-      return true;
-    }
-
-    if (outputChanged && (composerChanged || elapsed > 1200)) {
-      return true;
-    }
-
-    if (composerCleared && busy) {
-      return true;
-    }
-
-    return false;
-  }
-
   function queueStartVerification(reason) {
     if (monitoring) return;
 
-    const now = Date.now();
-
-    if (pendingAction && now - pendingAction.createdAt < 500) {
-      return;
-    }
-
-    clearPendingAction();
+    cleanupStartVerification();
 
     const composer = getPrimaryComposer();
 
-    pendingAction = {
+    pendingStart = {
       reason,
-      createdAt: now,
-      beforeMetrics: getOutputMetrics(),
-      beforeComposerText: getComposerText(composer)
+      createdAt: Date.now(),
+      beforeComposerText: normalizeText(getComposerText(composer)),
+      beforeMetrics: getOutputMetrics()
     };
 
-    verifyTimer = setInterval(() => {
-      if (!pendingAction) return;
+    startVerifyTimer = setInterval(() => {
+      if (!pendingStart) return;
 
-      const elapsed = Date.now() - pendingAction.createdAt;
+      const now = Date.now();
+      const elapsed = now - pendingStart.createdAt;
+      const composerNow = getPrimaryComposer();
+      const composerTextNow = normalizeText(getComposerText(composerNow));
+      const metricsNow = getOutputMetrics();
 
-      if (evaluateStartEvidence(pendingAction)) {
+      const composerCleared =
+        pendingStart.beforeComposerText.length > 0 &&
+        composerTextNow.length <= Math.floor(pendingStart.beforeComposerText.length * 0.3);
+
+      const outputChanged = metricsNow.signature !== pendingStart.beforeMetrics.signature;
+      const busy = metricsNow.busy === 1;
+
+      if ((busy && elapsed > 250) || (composerCleared && elapsed > 120) || (busy && outputChanged)) {
         notifyPromptStarted();
         return;
       }
 
       if (elapsed > START_VERIFY_TIMEOUT_MS) {
-        clearPendingAction();
+        cleanupStartVerification();
       }
     }, START_VERIFY_INTERVAL_MS);
+  }
+
+  function markMeaningfulChange(metrics, busy) {
+    const now = Date.now();
+
+    if (metrics.signature !== lastOutputSignature) {
+      lastOutputSignature = metrics.signature;
+      lastMeaningfulChangeAt = now;
+      stableTickCount = 0;
+    } else {
+      stableTickCount += 1;
+    }
+
+    if (busy) {
+      lastBusySeenAt = now;
+    }
   }
 
   function startCompletionMonitor() {
@@ -755,52 +480,56 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
 
     monitoring = true;
     promptStartedAt = Date.now();
-    lastMutationAt = Date.now();
-    lastOutputSignature = getOutputMetrics().signature;
+
+    const initialMetrics = getOutputMetrics();
+    const initialBusy = initialMetrics.busy === 1;
+
+    lastOutputSignature = initialMetrics.signature;
+    lastMeaningfulChangeAt = Date.now();
+    lastBusySeenAt = initialBusy ? Date.now() : 0;
     stableTickCount = 0;
 
-    completionObserver = new MutationObserver(() => {
-      lastMutationAt = Date.now();
-
-      const currentSignature = getOutputMetrics().signature;
-
-      if (currentSignature === lastOutputSignature) {
-        stableTickCount += 1;
-      } else {
-        stableTickCount = 0;
-        lastOutputSignature = currentSignature;
-      }
+    observer = new MutationObserver(() => {
+      const metrics = getOutputMetrics();
+      const busy = metrics.busy === 1;
+      markMeaningfulChange(metrics, busy);
     });
 
-    completionObserver.observe(document.body, {
+    observer.observe(document.body, {
       subtree: true,
       childList: true,
       characterData: true,
       attributes: true
     });
 
-    completionTimer = setInterval(() => {
+    pollTimer = setInterval(() => {
       const now = Date.now();
       const metrics = getOutputMetrics();
-      const busy = hasBusyIndicator() || hasActiveStopControl() || metrics.busyNodeCount > 0;
+      const busy = metrics.busy === 1;
+      const copyReady = metrics.hasCopy === 1;
 
-      if (metrics.signature === lastOutputSignature) {
-        stableTickCount += 1;
-      } else {
-        stableTickCount = 0;
-        lastOutputSignature = metrics.signature;
-        lastMutationAt = now;
-      }
+      markMeaningfulChange(metrics, busy);
 
-      const enoughTime = now - promptStartedAt > MIN_COMPLETION_MS;
-      const quietEnough = now - lastMutationAt > QUIET_WINDOW_MS;
+      const enoughTimePassed = now - promptStartedAt >= MIN_COMPLETION_MS;
+      const quietEnough = now - lastMeaningfulChangeAt >= QUIET_WINDOW_MS;
+      const noBusyLongEnough =
+        lastBusySeenAt === 0 || now - lastBusySeenAt >= NO_BUSY_WINDOW_MS;
 
-      if (enoughTime && !busy && (quietEnough || stableTickCount >= STABLE_TICKS_REQUIRED)) {
-        notifyCompleted();
-        return;
-      }
+      const copyBasedCompletion =
+        enoughTimePassed &&
+        copyReady &&
+        !busy &&
+        noBusyLongEnough &&
+        stableTickCount >= 2;
 
-      if (enoughTime && quietEnough && stableTickCount >= STABLE_TICKS_REQUIRED + 4) {
+      const conservativeCompletion =
+        enoughTimePassed &&
+        !busy &&
+        noBusyLongEnough &&
+        quietEnough &&
+        stableTickCount >= STABLE_TICKS_REQUIRED;
+
+      if (copyBasedCompletion || conservativeCompletion) {
         notifyCompleted();
       }
     }, COMPLETION_POLL_MS);
@@ -812,10 +541,12 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
       const target = event.target;
       if (!(target instanceof Element)) return;
 
-      const button = target.closest('button, [role="button"], input[type="submit"]');
-      if (!button) return;
+      const button = target.closest(
+        'button, [role="button"], input[type="submit"], input[type="button"]'
+      );
 
-      if (isPotentialStopControl(button)) return;
+      if (!button) return;
+      if (isPotentialStopButton(button)) return;
 
       if (isPotentialSendButton(button)) {
         queueStartVerification('click');
@@ -837,22 +568,20 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     (event) => {
       const target = event.target;
 
-      if (!(target instanceof Element)) return;
+      const isTextLike =
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable || target.getAttribute('role') === 'textbox'));
 
-      const inputLike = target.closest(
-        'textarea, [contenteditable="true"], [role="textbox"], input[type="text"], input:not([type])'
-      );
+      if (!isTextLike) return;
 
-      if (!inputLike) return;
+      const isLikelySend =
+        (event.key === 'Enter' && !event.shiftKey && !event.altKey) ||
+        ((event.ctrlKey || event.metaKey) && event.key === 'Enter');
 
-      const isEnter = event.key === 'Enter';
-      const likelySendShortcut =
-        (isEnter && !event.shiftKey && !event.altKey) ||
-        ((event.metaKey || event.ctrlKey) && isEnter);
-
-      if (!likelySendShortcut) return;
-
-      queueStartVerification('keydown');
+      if (isLikelySend) {
+        queueStartVerification('keydown');
+      }
     },
     true
   );
