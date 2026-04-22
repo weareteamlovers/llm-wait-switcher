@@ -1,16 +1,36 @@
 {
   "manifest_version": 3,
   "name": "LLM Wait Switcher",
-  "version": "0.1.0",
-  "description": "Switch to a user-selected tab while LLM response is generating, then return automatically.",
+  "version": "0.2.0",
+  "description": "Switch to a selected content tab while an AI service is generating, then return automatically when it finishes.",
   "permissions": ["tabs", "storage", "scripting"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://claude.ai/*",
+    "https://code.claude.com/*",
     "https://gemini.google.com/*",
+    "https://aistudio.google.com/*",
+    "https://copilot.microsoft.com/*",
+    "https://grok.com/*",
+    "https://www.perplexity.ai/*",
+    "https://poe.com/*",
+    "https://chat.deepseek.com/*",
+    "https://chat.mistral.ai/*",
+    "https://www.midjourney.com/*",
+    "https://alpha.midjourney.com/*",
+    "https://cursor.com/*",
+    "https://chat.qwen.ai/*",
+    "https://qwen.ai/*",
+    "https://www.kimi.com/*",
+    "https://kimi.com/*",
     "*://*.youtube.com/*",
-    "*://www.netflix.com/*"
+    "*://www.netflix.com/*",
+    "*://www.disneyplus.com/*",
+    "*://www.primevideo.com/*",
+    "*://*.twitch.tv/*",
+    "*://vimeo.com/*",
+    "*://player.vimeo.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -25,7 +45,22 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
         "https://claude.ai/*",
-        "https://gemini.google.com/*"
+        "https://code.claude.com/*",
+        "https://gemini.google.com/*",
+        "https://aistudio.google.com/*",
+        "https://copilot.microsoft.com/*",
+        "https://grok.com/*",
+        "https://www.perplexity.ai/*",
+        "https://poe.com/*",
+        "https://chat.deepseek.com/*",
+        "https://chat.mistral.ai/*",
+        "https://www.midjourney.com/*",
+        "https://alpha.midjourney.com/*",
+        "https://cursor.com/*",
+        "https://chat.qwen.ai/*",
+        "https://qwen.ai/*",
+        "https://www.kimi.com/*",
+        "https://kimi.com/*"
       ],
       "js": ["llm-content.js"],
       "run_at": "document_idle"
@@ -33,7 +68,12 @@
     {
       "matches": [
         "*://*.youtube.com/*",
-        "*://www.netflix.com/*"
+        "*://www.netflix.com/*",
+        "*://www.disneyplus.com/*",
+        "*://www.primevideo.com/*",
+        "*://*.twitch.tv/*",
+        "*://vimeo.com/*",
+        "*://player.vimeo.com/*"
       ],
       "js": ["player-content.js"],
       "run_at": "document_idle"

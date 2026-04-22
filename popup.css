@@ -4,10 +4,10 @@
 
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  min-width: 360px;
   background: #111827;
   color: #f9fafb;
-  min-width: 340px;
+  font-family: Arial, sans-serif;
 }
 
 .container {
@@ -20,23 +20,45 @@ h1 {
 }
 
 .card {
+  margin-bottom: 12px;
+  padding: 12px;
   background: #1f2937;
   border: 1px solid #374151;
   border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 12px;
 }
 
 .label {
+  margin-bottom: 6px;
   font-size: 12px;
   color: #9ca3af;
-  margin-bottom: 6px;
 }
 
 .target-info {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   word-break: break-word;
+}
+
+.target-title {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.target-url {
+  margin-top: 4px;
+  color: #cbd5e1;
+}
+
+.target-type {
+  margin-top: 6px;
+  color: #93c5fd;
+  font-size: 12px;
+}
+
+.runtime-info {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #d1d5db;
 }
 
 .controls {
@@ -50,10 +72,10 @@ button {
   padding: 10px 12px;
   border: 0;
   border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
   font-size: 14px;
   cursor: pointer;
-  background: #2563eb;
-  color: white;
 }
 
 button.secondary {
@@ -77,6 +99,6 @@ button:hover {
 
 .hint {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: #d1d5db;
 }

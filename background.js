@@ -9,12 +9,53 @@ const DEFAULT_SETTINGS = {
   autoPauseOnReturnEnabled: true
 };
 
+const LLM_URL_PATTERNS = [
+  /^https:\/\/chatgpt\.com\//i,
+  /^https:\/\/chat\.openai\.com\//i,
+  /^https:\/\/claude\.ai\//i,
+  /^https:\/\/code\.claude\.com\//i,
+  /^https:\/\/gemini\.google\.com\//i,
+  /^https:\/\/aistudio\.google\.com\//i,
+  /^https:\/\/copilot\.microsoft\.com\//i,
+  /^https:\/\/grok\.com\//i,
+  /^https:\/\/www\.perplexity\.ai\//i,
+  /^https:\/\/poe\.com\//i,
+  /^https:\/\/chat\.deepseek\.com\//i,
+  /^https:\/\/chat\.mistral\.ai\//i,
+  /^https:\/\/www\.midjourney\.com\//i,
+  /^https:\/\/alpha\.midjourney\.com\//i,
+  /^https:\/\/cursor\.com\//i,
+  /^https:\/\/chat\.qwen\.ai\//i,
+  /^https:\/\/qwen\.ai\//i,
+  /^https:\/\/www\.kimi\.com\//i,
+  /^https:\/\/kimi\.com\//i
+];
+
+const MEDIA_URL_PATTERNS = [
+  /youtube\.com/i,
+  /netflix\.com/i,
+  /disneyplus\.com/i,
+  /primevideo\.com/i,
+  /twitch\.tv/i,
+  /vimeo\.com/i
+];
+
+function matchesAny(url = '', patterns = []) {
+  return patterns.some((pattern) => pattern.test(url));
+}
+
 function isLlmUrl(url = '') {
-  return /https:\/\/(chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com)\//i.test(url);
+  return matchesAny(url, LLM_URL_PATTERNS);
 }
 
 function isMediaPlatform(url = '') {
-  return /youtube\.com|netflix\.com/i.test(url);
+  return matchesAny(url, MEDIA_URL_PATTERNS);
+}
+
+function getSiteType(url = '') {
+  if (isLlmUrl(url)) return 'llm';
+  if (isMediaPlatform(url)) return 'media';
+  return 'other';
 }
 
 async function getStorage(keys) {
@@ -43,8 +84,7 @@ async function focusTab(tabId, windowId) {
 
 async function validateTab(tabId) {
   try {
-    const tab = await chrome.tabs.get(tabId);
-    return tab;
+    return await chrome.tabs.get(tabId);
   } catch (error) {
     return null;
   }
@@ -66,14 +106,13 @@ async function injectScriptIfNeeded(tabId, file) {
       files: [file]
     });
   } catch (error) {
-    // 접근 불가 탭, chrome:// 탭 등은 무시
+    // chrome://, 접근 불가 탭, 권한 미지원 탭 등은 무시
   }
 }
 
 async function ensureScriptsInjectedForOpenTabs() {
   try {
     const tabs = await chrome.tabs.query({});
-
     for (const tab of tabs) {
       if (!tab.id || !tab.url) continue;
 
@@ -90,6 +129,14 @@ async function ensureScriptsInjectedForOpenTabs() {
   }
 }
 
+async function getMergedSettings() {
+  const data = await getStorage(STORAGE_KEYS.SETTINGS);
+  return {
+    ...DEFAULT_SETTINGS,
+    ...(data[STORAGE_KEYS.SETTINGS] || {})
+  };
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const data = await getStorage([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SESSIONS]);
 
@@ -101,9 +148,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 
   if (!data[STORAGE_KEYS.SESSIONS]) {
-    await setStorage({
-      [STORAGE_KEYS.SESSIONS]: {}
-    });
+    await setStorage({ [STORAGE_KEYS.SESSIONS]: {} });
   }
 
   await ensureScriptsInjectedForOpenTabs();
@@ -130,17 +175,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       if (message.type === 'LLM_PROMPT_STARTED') {
         const sourceTab = sender.tab;
+
         if (!sourceTab?.id) {
           sendResponse({ ok: false, reason: 'NO_SOURCE_TAB' });
           return;
         }
 
-        const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SETTINGS]);
+        const data = await getStorage([STORAGE_KEYS.TARGET_TAB]);
         const targetTabData = data[STORAGE_KEYS.TARGET_TAB];
-        const settings = {
-          ...DEFAULT_SETTINGS,
-          ...(data[STORAGE_KEYS.SETTINGS] || {})
-        };
 
         if (!targetTabData?.tabId) {
           sendResponse({ ok: false, reason: 'NO_TARGET_TAB' });
@@ -148,26 +190,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const targetTab = await validateTab(targetTabData.tabId);
+
         if (!targetTab?.id) {
           await removeStorage(STORAGE_KEYS.TARGET_TAB);
           sendResponse({ ok: false, reason: 'TARGET_TAB_CLOSED' });
           return;
         }
 
-        if (isMediaPlatform(targetTab.url || '')) {
-          await injectScriptIfNeeded(targetTab.id, 'player-content.js');
+        if (targetTab.id === sourceTab.id) {
+          sendResponse({ ok: false, reason: 'TARGET_EQUALS_SOURCE' });
+          return;
         }
 
+        const settings = await getMergedSettings();
         const sessions = await getSessions();
+
         sessions[String(sourceTab.id)] = {
           sourceTabId: sourceTab.id,
           sourceWindowId: sourceTab.windowId,
+          sourceUrl: sourceTab.url || '',
           targetTabId: targetTab.id,
           targetWindowId: targetTab.windowId,
-          startedAt: Date.now(),
-          targetUrl: targetTab.url || ''
+          targetUrl: targetTab.url || '',
+          startedAt: Date.now()
         };
+
         await saveSessions(sessions);
+
+        if (isMediaPlatform(targetTab.url || '')) {
+          await injectScriptIfNeeded(targetTab.id, 'player-content.js');
+        }
 
         const focused = await focusTab(targetTab.id, targetTab.windowId);
 
@@ -185,6 +237,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (message.type === 'LLM_RESPONSE_COMPLETED') {
         const sourceTab = sender.tab;
+
         if (!sourceTab?.id) {
           sendResponse({ ok: false, reason: 'NO_SOURCE_TAB' });
           return;
@@ -198,23 +251,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
-        const data = await getStorage(STORAGE_KEYS.SETTINGS);
-        const settings = {
-          ...DEFAULT_SETTINGS,
-          ...(data[STORAGE_KEYS.SETTINGS] || {})
-        };
-
+        const settings = await getMergedSettings();
         const validTargetTab = await validateTab(session.targetTabId);
+
         if (
           settings.autoPauseOnReturnEnabled &&
           validTargetTab?.id &&
           isMediaPlatform(session.targetUrl || validTargetTab.url || '')
         ) {
-          await injectScriptIfNeeded(session.targetTabId, 'player-content.js');
+          await injectScriptIfNeeded(validTargetTab.id, 'player-content.js');
 
           await new Promise((resolve) => {
             chrome.tabs.sendMessage(
-              session.targetTabId,
+              validTargetTab.id,
               { type: 'TRY_PAUSE' },
               () => {
                 chrome.runtime.lastError;
@@ -225,8 +274,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const validSourceTab = await validateTab(session.sourceTabId);
+
         if (validSourceTab?.id) {
-          await focusTab(session.sourceTabId, session.sourceWindowId);
+          await focusTab(validSourceTab.id, session.sourceWindowId);
         }
 
         delete sessions[String(sourceTab.id)];
@@ -272,7 +322,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SESSIONS]);
   const targetTab = data[STORAGE_KEYS.TARGET_TAB];
   const sessions = data[STORAGE_KEYS.SESSIONS] || {};
-
   let shouldSaveSessions = false;
 
   if (targetTab?.tabId === tabId) {
@@ -291,5 +340,4 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }
 });
 
-// service worker가 깨어날 때마다 기존 열린 탭에도 다시 주입 시도
 ensureScriptsInjectedForOpenTabs();

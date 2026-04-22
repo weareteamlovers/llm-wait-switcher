@@ -1,29 +1,97 @@
 if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
   globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__ = true;
 
+  const PLAY_KEYWORDS = [
+    'play',
+    'resume',
+    'watch',
+    '재생',
+    '계속',
+    '다시 재생'
+  ];
+
+  const PAUSE_KEYWORDS = [
+    'pause',
+    '일시중지',
+    '멈춤',
+    '중지'
+  ];
+
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function tryVideoPlay(video) {
-    if (!video) return false;
+  function normalizeText(text = '') {
+    return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  function isVisible(element) {
+    if (!(element instanceof Element)) return false;
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      style.opacity !== '0' &&
+      rect.width > 0 &&
+      rect.height > 0
+    );
+  }
+
+  function elementText(element) {
+    if (!(element instanceof Element)) return '';
+
+    return normalizeText(
+      [
+        element.textContent,
+        element.getAttribute('aria-label'),
+        element.getAttribute('title'),
+        element.getAttribute('data-testid'),
+        element.getAttribute('data-uia')
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+  }
+
+  function getMediaElements() {
+    return Array.from(document.querySelectorAll('video, audio'))
+      .filter((media) => {
+        if (!(media instanceof HTMLMediaElement)) return false;
+        const rect = media.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .sort((a, b) => {
+        const rectA = a.getBoundingClientRect();
+        const rectB = b.getBoundingClientRect();
+        return rectB.width * rectB.height - rectA.width * rectA.height;
+      });
+  }
+
+  function getPrimaryMedia() {
+    return getMediaElements()[0] || null;
+  }
+
+  async function tryMediaPlay(media) {
+    if (!(media instanceof HTMLMediaElement)) return false;
 
     try {
-      await video.play();
-      await sleep(500);
-      return !video.paused;
+      await media.play();
+      await sleep(400);
+      return !media.paused;
     } catch (error) {
       return false;
     }
   }
 
-  async function tryVideoPause(video) {
-    if (!video) return false;
+  async function tryMediaPause(media) {
+    if (!(media instanceof HTMLMediaElement)) return false;
 
     try {
-      video.pause();
+      media.pause();
       await sleep(300);
-      return video.paused;
+      return media.paused;
     } catch (error) {
       return false;
     }
@@ -36,32 +104,106 @@ if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
       bubbles: true,
       cancelable: true
     });
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof Element) {
+      activeElement.dispatchEvent(event);
+    }
+
     document.dispatchEvent(event);
   }
 
-  async function playYouTube() {
-    const video = document.querySelector('video');
+  function clickButtonByKeywords(keywords) {
+    const controls = Array.from(
+      document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]')
+    ).filter(isVisible);
 
-    if (await tryVideoPlay(video)) {
-      return { ok: true, platform: 'youtube', method: 'video.play()' };
+    for (const control of controls) {
+      const text = elementText(control);
+      if (keywords.some((keyword) => text.includes(keyword))) {
+        control.click();
+        return true;
+      }
     }
 
-    const playButton = document.querySelector('.ytp-play-button');
-    if (playButton) {
-      playButton.click();
+    return false;
+  }
+
+  async function genericPlay(platform = 'generic') {
+    const media = getPrimaryMedia();
+
+    if (await tryMediaPlay(media)) {
+      return { ok: true, platform, method: 'media.play()' };
+    }
+
+    if (clickButtonByKeywords(PLAY_KEYWORDS)) {
+      await sleep(500);
+      const afterClick = getPrimaryMedia();
+      if (afterClick instanceof HTMLMediaElement && !afterClick.paused) {
+        return { ok: true, platform, method: 'button.click()' };
+      }
+    }
+
+    dispatchKey(' ', 'Space');
+    await sleep(400);
+
+    const afterSpace = getPrimaryMedia();
+    if (afterSpace instanceof HTMLMediaElement && !afterSpace.paused) {
+      return { ok: true, platform, method: 'keyboard:space' };
+    }
+
+    return { ok: false, platform };
+  }
+
+  async function genericPause(platform = 'generic') {
+    const media = getPrimaryMedia();
+
+    if (media instanceof HTMLMediaElement && !media.paused && (await tryMediaPause(media))) {
+      return { ok: true, platform, method: 'media.pause()' };
+    }
+
+    if (clickButtonByKeywords(PAUSE_KEYWORDS)) {
+      await sleep(400);
+      const afterClick = getPrimaryMedia();
+      if (afterClick instanceof HTMLMediaElement && afterClick.paused) {
+        return { ok: true, platform, method: 'button.click()' };
+      }
+    }
+
+    dispatchKey(' ', 'Space');
+    await sleep(400);
+
+    const afterSpace = getPrimaryMedia();
+    if (afterSpace instanceof HTMLMediaElement && afterSpace.paused) {
+      return { ok: true, platform, method: 'keyboard:space' };
+    }
+
+    return { ok: false, platform };
+  }
+
+  async function playYouTube() {
+    const media = getPrimaryMedia();
+
+    if (await tryMediaPlay(media)) {
+      return { ok: true, platform: 'youtube', method: 'media.play()' };
+    }
+
+    const button = document.querySelector('.ytp-play-button');
+    if (button instanceof HTMLElement) {
+      button.click();
       await sleep(500);
 
-      const videoAfterClick = document.querySelector('video');
-      if (videoAfterClick && !videoAfterClick.paused) {
+      const afterClick = getPrimaryMedia();
+      if (afterClick instanceof HTMLMediaElement && !afterClick.paused) {
         return { ok: true, platform: 'youtube', method: 'button.click()' };
       }
     }
 
     dispatchKey('k', 'KeyK');
-    await sleep(500);
+    await sleep(400);
 
-    const videoAfterKey = document.querySelector('video');
-    if (videoAfterKey && !videoAfterKey.paused) {
+    const afterKey = getPrimaryMedia();
+    if (afterKey instanceof HTMLMediaElement && !afterKey.paused) {
       return { ok: true, platform: 'youtube', method: 'keyboard:k' };
     }
 
@@ -69,19 +211,19 @@ if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
   }
 
   async function pauseYouTube() {
-    const video = document.querySelector('video');
+    const media = getPrimaryMedia();
 
-    if (video && !video.paused && (await tryVideoPause(video))) {
-      return { ok: true, platform: 'youtube', method: 'video.pause()' };
+    if (media instanceof HTMLMediaElement && !media.paused && (await tryMediaPause(media))) {
+      return { ok: true, platform: 'youtube', method: 'media.pause()' };
     }
 
-    const playButton = document.querySelector('.ytp-play-button');
-    if (playButton) {
-      playButton.click();
+    const button = document.querySelector('.ytp-play-button');
+    if (button instanceof HTMLElement) {
+      button.click();
       await sleep(400);
 
-      const videoAfterClick = document.querySelector('video');
-      if (videoAfterClick && videoAfterClick.paused) {
+      const afterClick = getPrimaryMedia();
+      if (afterClick instanceof HTMLMediaElement && afterClick.paused) {
         return { ok: true, platform: 'youtube', method: 'button.click()' };
       }
     }
@@ -89,8 +231,8 @@ if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
     dispatchKey('k', 'KeyK');
     await sleep(400);
 
-    const videoAfterKey = document.querySelector('video');
-    if (videoAfterKey && videoAfterKey.paused) {
+    const afterKey = getPrimaryMedia();
+    if (afterKey instanceof HTMLMediaElement && afterKey.paused) {
       return { ok: true, platform: 'youtube', method: 'keyboard:k' };
     }
 
@@ -98,64 +240,56 @@ if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
   }
 
   async function playNetflix() {
-    const video = document.querySelector('video');
+    const media = getPrimaryMedia();
 
-    if (await tryVideoPlay(video)) {
-      return { ok: true, platform: 'netflix', method: 'video.play()' };
+    if (await tryMediaPlay(media)) {
+      return { ok: true, platform: 'netflix', method: 'media.play()' };
     }
 
-    const playButton =
+    const button =
       document.querySelector('button[data-uia="player-play-pause"]') ||
       document.querySelector('button[aria-label*="Play"]') ||
       document.querySelector('button[aria-label*="재생"]');
 
-    if (playButton) {
-      playButton.click();
+    if (button instanceof HTMLElement) {
+      button.click();
       await sleep(500);
 
-      const videoAfterClick = document.querySelector('video');
-      if (videoAfterClick && !videoAfterClick.paused) {
+      const afterClick = getPrimaryMedia();
+      if (afterClick instanceof HTMLMediaElement && !afterClick.paused) {
         return { ok: true, platform: 'netflix', method: 'button.click()' };
       }
     }
 
     dispatchKey(' ', 'Space');
-    await sleep(500);
+    await sleep(400);
 
-    const videoAfterSpace = document.querySelector('video');
-    if (videoAfterSpace && !videoAfterSpace.paused) {
+    const afterSpace = getPrimaryMedia();
+    if (afterSpace instanceof HTMLMediaElement && !afterSpace.paused) {
       return { ok: true, platform: 'netflix', method: 'keyboard:space' };
-    }
-
-    dispatchKey('Enter', 'Enter');
-    await sleep(500);
-
-    const videoAfterEnter = document.querySelector('video');
-    if (videoAfterEnter && !videoAfterEnter.paused) {
-      return { ok: true, platform: 'netflix', method: 'keyboard:enter' };
     }
 
     return { ok: false, platform: 'netflix' };
   }
 
   async function pauseNetflix() {
-    const video = document.querySelector('video');
+    const media = getPrimaryMedia();
 
-    if (video && !video.paused && (await tryVideoPause(video))) {
-      return { ok: true, platform: 'netflix', method: 'video.pause()' };
+    if (media instanceof HTMLMediaElement && !media.paused && (await tryMediaPause(media))) {
+      return { ok: true, platform: 'netflix', method: 'media.pause()' };
     }
 
-    const pauseButton =
+    const button =
       document.querySelector('button[data-uia="player-play-pause"]') ||
       document.querySelector('button[aria-label*="Pause"]') ||
       document.querySelector('button[aria-label*="일시중지"]');
 
-    if (pauseButton) {
-      pauseButton.click();
+    if (button instanceof HTMLElement) {
+      button.click();
       await sleep(400);
 
-      const videoAfterClick = document.querySelector('video');
-      if (videoAfterClick && videoAfterClick.paused) {
+      const afterClick = getPrimaryMedia();
+      if (afterClick instanceof HTMLMediaElement && afterClick.paused) {
         return { ok: true, platform: 'netflix', method: 'button.click()' };
       }
     }
@@ -163,48 +297,43 @@ if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
     dispatchKey(' ', 'Space');
     await sleep(400);
 
-    const videoAfterSpace = document.querySelector('video');
-    if (videoAfterSpace && videoAfterSpace.paused) {
+    const afterSpace = getPrimaryMedia();
+    if (afterSpace instanceof HTMLMediaElement && afterSpace.paused) {
       return { ok: true, platform: 'netflix', method: 'keyboard:space' };
-    }
-
-    dispatchKey('Enter', 'Enter');
-    await sleep(400);
-
-    const videoAfterEnter = document.querySelector('video');
-    if (videoAfterEnter && videoAfterEnter.paused) {
-      return { ok: true, platform: 'netflix', method: 'keyboard:enter' };
     }
 
     return { ok: false, platform: 'netflix' };
   }
 
-  async function tryPlayForCurrentSite() {
+  function getPlatform() {
     const host = location.hostname;
 
-    if (host.includes('youtube.com')) {
-      return playYouTube();
-    }
+    if (host.includes('youtube.com')) return 'youtube';
+    if (host.includes('netflix.com')) return 'netflix';
+    if (host.includes('disneyplus.com')) return 'disneyplus';
+    if (host.includes('primevideo.com')) return 'primevideo';
+    if (host.includes('twitch.tv')) return 'twitch';
+    if (host.includes('vimeo.com')) return 'vimeo';
 
-    if (host.includes('netflix.com')) {
-      return playNetflix();
-    }
+    return 'generic';
+  }
 
-    return { ok: false, reason: 'UNSUPPORTED_SITE' };
+  async function tryPlayForCurrentSite() {
+    const platform = getPlatform();
+
+    if (platform === 'youtube') return playYouTube();
+    if (platform === 'netflix') return playNetflix();
+
+    return genericPlay(platform);
   }
 
   async function tryPauseForCurrentSite() {
-    const host = location.hostname;
+    const platform = getPlatform();
 
-    if (host.includes('youtube.com')) {
-      return pauseYouTube();
-    }
+    if (platform === 'youtube') return pauseYouTube();
+    if (platform === 'netflix') return pauseNetflix();
 
-    if (host.includes('netflix.com')) {
-      return pauseNetflix();
-    }
-
-    return { ok: false, reason: 'UNSUPPORTED_SITE' };
+    return genericPause(platform);
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -223,5 +352,7 @@ if (!globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) {
       })();
       return true;
     }
+
+    return false;
   });
 }

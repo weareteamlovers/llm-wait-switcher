@@ -1,5 +1,10 @@
 MIT License
 
+
+지금 버전의 핵심 변화는 `llm-content.js`를 ChatGPT 전용 느낌의 단순 감지에서, 서비스별 URL 매칭 + 공통 휴리스틱 기반 생성 시작/종료 감지로 바꾼 점입니다. 그래서 텍스트형 AI뿐 아니라 Midjourney 같은 이미지 생성형 UI에서도 DOM 변화와 busy 상태를 함께 보고 판단하도록 바꿨습니다.
+::contentReference[oaicite:1]{index=1}
+
+
 Copyright (c) 2026 나영우
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

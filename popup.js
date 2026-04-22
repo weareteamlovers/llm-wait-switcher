@@ -9,10 +9,20 @@ const DEFAULT_SETTINGS = {
 };
 
 const targetInfoEl = document.getElementById('targetInfo');
+const runtimeInfoEl = document.getElementById('runtimeInfo');
 const setCurrentTabBtn = document.getElementById('setCurrentTabBtn');
 const clearTargetTabBtn = document.getElementById('clearTargetTabBtn');
 const autoPlayEnabledEl = document.getElementById('autoPlayEnabled');
 const autoPauseOnReturnEnabledEl = document.getElementById('autoPauseOnReturnEnabled');
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
 async function getStorage(keys) {
   return chrome.storage.local.get(keys);
@@ -23,7 +33,17 @@ async function setStorage(data) {
 }
 
 function isMediaPlatform(url = '') {
-  return /youtube\.com|netflix\.com/i.test(url);
+  return /youtube\.com|netflix\.com|disneyplus\.com|primevideo\.com|twitch\.tv|vimeo\.com/i.test(url);
+}
+
+function isLlmUrl(url = '') {
+  return /(chatgpt\.com|chat\.openai\.com|claude\.ai|code\.claude\.com|gemini\.google\.com|aistudio\.google\.com|copilot\.microsoft\.com|grok\.com|perplexity\.ai|poe\.com|deepseek\.com|mistral\.ai|midjourney\.com|cursor\.com|qwen\.ai|kimi\.com)/i.test(url);
+}
+
+function getTabTypeLabel(url = '') {
+  if (isMediaPlatform(url)) return '지원 미디어 탭';
+  if (isLlmUrl(url)) return '지원 AI 탭';
+  return '일반 탭';
 }
 
 function renderTargetInfo(targetTab) {
@@ -32,49 +52,44 @@ function renderTargetInfo(targetTab) {
     return;
   }
 
-  const mediaText = isMediaPlatform(targetTab.url) ? '영상 플랫폼' : '일반 탭';
   targetInfoEl.innerHTML = `
-    <strong>${escapeHtml(targetTab.title || '제목 없음')}</strong><br />
-    ${escapeHtml(targetTab.url || '')}<br />
-    유형: ${mediaText}
+    <div class="target-title">${escapeHtml(targetTab.title || '제목 없음')}</div>
+    <div class="target-url">${escapeHtml(targetTab.url || '')}</div>
+    <div class="target-type">유형: ${escapeHtml(getTabTypeLabel(targetTab.url || ''))}</div>
   `;
-}
-
-function escapeHtml(text) {
-  return String(text)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
 }
 
 async function saveSettings(patch) {
   const data = await getStorage(STORAGE_KEYS.SETTINGS);
-  const prev = {
+  const previous = {
     ...DEFAULT_SETTINGS,
     ...(data[STORAGE_KEYS.SETTINGS] || {})
   };
 
   await setStorage({
     [STORAGE_KEYS.SETTINGS]: {
-      ...prev,
+      ...previous,
       ...patch
     }
   });
 }
 
 async function refreshUI() {
-  const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SETTINGS]);
-  const targetTab = data[STORAGE_KEYS.TARGET_TAB] || null;
+  const runtimeState = await chrome.runtime.sendMessage({ type: 'GET_RUNTIME_STATE' });
+  const targetTab = runtimeState?.targetTab || null;
   const settings = {
     ...DEFAULT_SETTINGS,
-    ...(data[STORAGE_KEYS.SETTINGS] || {})
+    ...(runtimeState?.settings || {})
   };
+  const sessionCount = Object.keys(runtimeState?.sessions || {}).length;
 
   renderTargetInfo(targetTab);
+
   autoPlayEnabledEl.checked = settings.autoPlayEnabled;
   autoPauseOnReturnEnabledEl.checked = settings.autoPauseOnReturnEnabled;
+
+  runtimeInfoEl.textContent =
+    sessionCount > 0 ? `활성 세션 ${sessionCount}개` : '활성 세션 없음';
 }
 
 setCurrentTabBtn.addEventListener('click', async () => {
@@ -101,9 +116,7 @@ clearTargetTabBtn.addEventListener('click', async () => {
 });
 
 autoPlayEnabledEl.addEventListener('change', async () => {
-  await saveSettings({
-    autoPlayEnabled: autoPlayEnabledEl.checked
-  });
+  await saveSettings({ autoPlayEnabled: autoPlayEnabledEl.checked });
 });
 
 autoPauseOnReturnEnabledEl.addEventListener('change', async () => {

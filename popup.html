@@ -1,41 +1,46 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <title>LLM Wait Switcher</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main class="container">
+    <div class="container">
       <h1>LLM Wait Switcher</h1>
 
-      <section class="card">
+      <div class="card">
         <div class="label">현재 지정된 대상 탭</div>
         <div id="targetInfo" class="target-info">없음</div>
-      </section>
+        <div id="runtimeInfo" class="runtime-info">활성 세션 없음</div>
+      </div>
 
-      <section class="card controls">
+      <div class="controls card">
         <button id="setCurrentTabBtn">현재 탭을 대상 탭으로 지정</button>
         <button id="clearTargetTabBtn" class="secondary">대상 탭 해제</button>
-      </section>
+      </div>
 
-      <section class="card">
+      <div class="card">
         <label class="toggle-row">
-          <input type="checkbox" id="autoPlayEnabled" />
-          <span>영상 플랫폼이면 자동 재생 시도</span>
+          <input id="autoPlayEnabled" type="checkbox" />
+          <span>대상 탭이 미디어 플랫폼이면 자동 재생 시도</span>
         </label>
 
         <label class="toggle-row">
-          <input type="checkbox" id="autoPauseOnReturnEnabled" />
-          <span>LLM 복귀 시 영상 자동 중지</span>
+          <input id="autoPauseOnReturnEnabled" type="checkbox" />
+          <span>LLM 응답 완료 후 자동 일시중지</span>
         </label>
-      </section>
+      </div>
 
-      <section class="card hint">
-        ChatGPT에서 프롬프트를 보내면 지정된 탭으로 이동합니다.<br />
-        응답이 끝나면 원래 탭으로 돌아옵니다.
-      </section>
-    </main>
+      <div class="card hint">
+        ChatGPT, Claude, Claude Code(web), Gemini, AI Studio, Cursor Web, Midjourney,
+        Copilot, Grok, Perplexity, Poe, DeepSeek, Le Chat, Qwen, Kimi 탭에서
+        프롬프트 전송을 감지합니다.
+        <br /><br />
+        유튜브, 넷플릭스, 디즈니+, 프라임비디오, 트위치, 비메오 탭은 자동 재생/정지
+        시도를 지원합니다.
+      </div>
+    </div>
 
     <script src="popup.js"></script>
   </body>
