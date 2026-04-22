@@ -31,26 +31,6 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     '중단'
   ];
 
-  const COPY_KEYWORDS = [
-    'copy',
-    'copy response',
-    'copy text',
-    'copy message',
-    '복사',
-    '답변 복사',
-    '응답 복사',
-    '텍스트 복사'
-  ];
-
-  const IGNORE_COPY_KEYWORDS = [
-    'copy link',
-    'copy url',
-    'copy invite',
-    'copy code block',
-    'copy prompt',
-    'copy conversation'
-  ];
-
   const BUSY_KEYWORDS = [
     'thinking',
     'generating',
@@ -73,12 +53,13 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
   const START_VERIFY_INTERVAL_MS = 250;
   const START_VERIFY_TIMEOUT_MS = 4500;
 
-  const COMPLETION_POLL_MS = 800;
-  const MIN_COMPLETION_MS = 3500;
-  const QUIET_WINDOW_MS = 3200;
-  const NO_BUSY_WINDOW_MS = 1400;
+  const COMPLETION_POLL_MS = 700;
+  const MIN_COMPLETION_MS = 3200;
+  const QUIET_WINDOW_MS = 2600;
+  const NO_BUSY_WINDOW_MS = 1200;
+  const READY_WINDOW_MS = 1200;
   const STABLE_TICKS_REQUIRED = 4;
-  const HARD_FALLBACK_COMPLETION_MS = 9000;
+  const HARD_FALLBACK_COMPLETION_MS = 12000;
 
   let monitoring = false;
   let observer = null;
@@ -90,6 +71,7 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
 
   let lastMeaningfulChangeAt = 0;
   let lastBusySeenAt = 0;
+  let lastReadySeenAt = 0;
   let lastOutputSignature = '';
   let stableTickCount = 0;
 
@@ -191,6 +173,22 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     return el.textContent || '';
   }
 
+  function isComposerInteractive(el) {
+    if (!el || !isVisible(el)) return false;
+
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+      return !el.disabled && !el.readOnly;
+    }
+
+    if (el instanceof HTMLElement) {
+      if (el.matches('[aria-disabled="true"], [disabled], [inert]')) return false;
+      if (el.getAttribute('contenteditable') === 'false') return false;
+      return true;
+    }
+
+    return false;
+  }
+
   function isPotentialSendButton(button) {
     if (!(button instanceof Element) || !isVisible(button)) return false;
     if (button.matches('[disabled], [aria-disabled="true"]')) return false;
@@ -235,14 +233,34 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     return STOP_KEYWORDS.some((keyword) => text.includes(keyword));
   }
 
-  function hasStopControl() {
-    const controls = Array.from(
+  function getControls() {
+    return Array.from(
       document.querySelectorAll(
         'button, [role="button"], input[type="button"], input[type="submit"]'
       )
     ).filter(isVisible);
+  }
 
-    return controls.some((el) => isPotentialStopControl(el));
+  function hasStopControl() {
+    return getControls().some((el) => isPotentialStopControl(el));
+  }
+
+  function getReadySendButton() {
+    const controls = getControls().filter((el) => isPotentialSendButton(el));
+
+    if (controls.length === 0) return null;
+
+    controls.sort((a, b) => {
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return rb.bottom - ra.bottom;
+    });
+
+    return controls[0] || null;
+  }
+
+  function isSendButtonReady() {
+    return !!getReadySendButton();
   }
 
   function hasBusyIndicator() {
@@ -300,61 +318,6 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     return nodes.slice(-8);
   }
 
-  function getLatestOutputNode() {
-    const nodes = getOutputNodes();
-    return nodes.length ? nodes[nodes.length - 1] : null;
-  }
-
-  function isPotentialCopyControl(el) {
-    if (!(el instanceof Element) || !isVisible(el)) return false;
-
-    const text = elementText(el);
-    if (!text) return false;
-
-    if (IGNORE_COPY_KEYWORDS.some((keyword) => text.includes(keyword))) {
-      return false;
-    }
-
-    if (
-      el.matches('button[aria-label*="Copy"]') ||
-      el.matches('button[aria-label*="복사"]') ||
-      el.matches('[data-testid*="copy"]') ||
-      el.matches('[title*="Copy"]') ||
-      el.matches('[title*="복사"]') ||
-      el.matches('[class*="copy"]')
-    ) {
-      return true;
-    }
-
-    return COPY_KEYWORDS.some((keyword) => text.includes(keyword));
-  }
-
-  function hasResponseCopyAffordance() {
-    const latest = getLatestOutputNode();
-    if (!latest) return false;
-
-    const roots = [
-      latest,
-      latest.parentElement,
-      latest.parentElement?.parentElement,
-      latest.nextElementSibling
-    ].filter(Boolean);
-
-    for (const root of roots) {
-      const controls = Array.from(
-        root.querySelectorAll(
-          'button, [role="button"], [data-testid], [title], [class*="copy"]'
-        )
-      ).filter(isVisible);
-
-      if (controls.some((el) => isPotentialCopyControl(el))) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
   function getOutputMetrics() {
     const nodes = getOutputNodes();
     const lastFew = nodes.slice(-4);
@@ -370,17 +333,22 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     }
 
     const busy = hasBusyIndicator() ? 1 : 0;
-    const copyReady = hasResponseCopyAffordance() ? 1 : 0;
     const outputExists = nodes.length > 0 || textLength > 0 || mediaCount > 0 ? 1 : 0;
+    const composer = getPrimaryComposer();
+    const composerReady = isComposerInteractive(composer) ? 1 : 0;
+    const sendReady = isSendButtonReady() ? 1 : 0;
+    const readyForNextTurn = composerReady || sendReady ? 1 : 0;
 
     return {
       textLength,
       mediaCount,
       codeCount,
       busy,
-      copyReady,
       outputExists,
-      signature: `${nodes.length}:${textLength}:${mediaCount}:${codeCount}:${busy}:${copyReady}`
+      composerReady,
+      sendReady,
+      readyForNextTurn,
+      signature: `${nodes.length}:${textLength}:${mediaCount}:${codeCount}:${busy}:${composerReady}:${sendReady}`
     };
   }
 
@@ -410,6 +378,7 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     stableTickCount = 0;
     lastMeaningfulChangeAt = 0;
     lastBusySeenAt = 0;
+    lastReadySeenAt = 0;
     lastOutputSignature = '';
   }
 
@@ -451,8 +420,14 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
 
     const outputChanged = currentMetrics.signature !== state.beforeMetrics.signature;
     const busy = currentMetrics.busy === 1;
+    const nextTurnNotReady = currentMetrics.readyForNextTurn === 0;
 
-    if ((busy && elapsed > 250) || (composerCleared && elapsed > 120) || (busy && outputChanged)) {
+    if (
+      (busy && elapsed > 250) ||
+      (composerCleared && elapsed > 120) ||
+      (busy && outputChanged) ||
+      (nextTurnNotReady && outputChanged && elapsed > 250)
+    ) {
       return true;
     }
 
@@ -489,7 +464,7 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     }, START_VERIFY_INTERVAL_MS);
   }
 
-  function markMeaningfulChange(metrics, busy) {
+  function markMeaningfulChange(metrics, busy, readyForNextTurn) {
     const now = Date.now();
 
     if (metrics.signature !== lastOutputSignature) {
@@ -503,6 +478,10 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     if (busy) {
       lastBusySeenAt = now;
     }
+
+    if (readyForNextTurn) {
+      lastReadySeenAt = now;
+    }
   }
 
   function startCompletionMonitor() {
@@ -513,16 +492,19 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
 
     const initialMetrics = getOutputMetrics();
     const initialBusy = initialMetrics.busy === 1;
+    const initialReady = initialMetrics.readyForNextTurn === 1;
 
     lastOutputSignature = initialMetrics.signature;
     lastMeaningfulChangeAt = Date.now();
     lastBusySeenAt = initialBusy ? Date.now() : 0;
+    lastReadySeenAt = initialReady ? Date.now() : 0;
     stableTickCount = 0;
 
     observer = new MutationObserver(() => {
       const metrics = getOutputMetrics();
       const busy = metrics.busy === 1;
-      markMeaningfulChange(metrics, busy);
+      const ready = metrics.readyForNextTurn === 1;
+      markMeaningfulChange(metrics, busy, ready);
     });
 
     observer.observe(document.body, {
@@ -536,20 +518,24 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
       const now = Date.now();
       const metrics = getOutputMetrics();
       const busy = metrics.busy === 1;
+      const ready = metrics.readyForNextTurn === 1;
 
-      markMeaningfulChange(metrics, busy);
+      markMeaningfulChange(metrics, busy, ready);
 
       const enoughTimePassed = now - promptStartedAt >= MIN_COMPLETION_MS;
       const quietEnough = now - lastMeaningfulChangeAt >= QUIET_WINDOW_MS;
       const noBusyLongEnough =
         lastBusySeenAt === 0 || now - lastBusySeenAt >= NO_BUSY_WINDOW_MS;
+      const readyLongEnough =
+        ready && lastReadySeenAt > 0 && now - lastReadySeenAt >= READY_WINDOW_MS;
 
-      const copyBasedCompletion =
+      const readyBasedCompletion =
         enoughTimePassed &&
-        metrics.copyReady === 1 &&
         !busy &&
         noBusyLongEnough &&
-        stableTickCount >= 1;
+        readyLongEnough &&
+        (quietEnough || stableTickCount >= 2) &&
+        metrics.outputExists === 1;
 
       const conservativeCompletion =
         enoughTimePassed &&
@@ -564,7 +550,7 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
         noBusyLongEnough &&
         metrics.outputExists === 1;
 
-      if (copyBasedCompletion || conservativeCompletion || hardFallbackCompletion) {
+      if (readyBasedCompletion || conservativeCompletion || hardFallbackCompletion) {
         notifyCompleted();
       }
     }, COMPLETION_POLL_MS);
