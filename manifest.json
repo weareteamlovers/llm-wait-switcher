@@ -3,7 +3,7 @@
   "name": "LLM Wait Switcher",
   "version": "0.1.0",
   "description": "Switch to a user-selected tab while LLM response is generating, then return automatically.",
-  "permissions": ["tabs", "storage"],
+  "permissions": ["tabs", "storage", "scripting"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",

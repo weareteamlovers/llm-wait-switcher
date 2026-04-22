@@ -9,6 +9,14 @@ const DEFAULT_SETTINGS = {
   autoPauseOnReturnEnabled: true
 };
 
+function isLlmUrl(url = '') {
+  return /https:\/\/(chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com)\//i.test(url);
+}
+
+function isMediaPlatform(url = '') {
+  return /youtube\.com|netflix\.com/i.test(url);
+}
+
 async function getStorage(keys) {
   return chrome.storage.local.get(keys);
 }
@@ -19,10 +27,6 @@ async function setStorage(data) {
 
 async function removeStorage(keys) {
   return chrome.storage.local.remove(keys);
-}
-
-function isMediaPlatform(url = '') {
-  return /youtube\.com|netflix\.com/i.test(url);
 }
 
 async function focusTab(tabId, windowId) {
@@ -55,6 +59,37 @@ async function saveSessions(sessions) {
   await setStorage({ [STORAGE_KEYS.SESSIONS]: sessions });
 }
 
+async function injectScriptIfNeeded(tabId, file) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [file]
+    });
+  } catch (error) {
+    // 접근 불가 탭, chrome:// 탭 등은 무시
+  }
+}
+
+async function ensureScriptsInjectedForOpenTabs() {
+  try {
+    const tabs = await chrome.tabs.query({});
+
+    for (const tab of tabs) {
+      if (!tab.id || !tab.url) continue;
+
+      if (isLlmUrl(tab.url)) {
+        await injectScriptIfNeeded(tab.id, 'llm-content.js');
+      }
+
+      if (isMediaPlatform(tab.url)) {
+        await injectScriptIfNeeded(tab.id, 'player-content.js');
+      }
+    }
+  } catch (error) {
+    // 무시
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const data = await getStorage([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SESSIONS]);
 
@@ -69,6 +104,24 @@ chrome.runtime.onInstalled.addListener(async () => {
     await setStorage({
       [STORAGE_KEYS.SESSIONS]: {}
     });
+  }
+
+  await ensureScriptsInjectedForOpenTabs();
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+  await ensureScriptsInjectedForOpenTabs();
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !tab.url) return;
+
+  if (isLlmUrl(tab.url)) {
+    await injectScriptIfNeeded(tabId, 'llm-content.js');
+  }
+
+  if (isMediaPlatform(tab.url)) {
+    await injectScriptIfNeeded(tabId, 'player-content.js');
   }
 });
 
@@ -99,6 +152,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await removeStorage(STORAGE_KEYS.TARGET_TAB);
           sendResponse({ ok: false, reason: 'TARGET_TAB_CLOSED' });
           return;
+        }
+
+        if (isMediaPlatform(targetTab.url || '')) {
+          await injectScriptIfNeeded(targetTab.id, 'player-content.js');
         }
 
         const sessions = await getSessions();
@@ -153,6 +210,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           validTargetTab?.id &&
           isMediaPlatform(session.targetUrl || validTargetTab.url || '')
         ) {
+          await injectScriptIfNeeded(session.targetTabId, 'player-content.js');
+
           await new Promise((resolve) => {
             chrome.tabs.sendMessage(
               session.targetTabId,
@@ -231,3 +290,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     await saveSessions(sessions);
   }
 });
+
+// service worker가 깨어날 때마다 기존 열린 탭에도 다시 주입 시도
+ensureScriptsInjectedForOpenTabs();
