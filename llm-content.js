@@ -23,10 +23,12 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     'halt',
     'stop generating',
     'stop response',
+    'cancel generation',
     '응답 중지',
     '생성 중지',
     '중지',
-    '취소'
+    '취소',
+    '중단'
   ];
 
   const COPY_KEYWORDS = [
@@ -49,15 +51,34 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     'copy conversation'
   ];
 
-  const START_SIGNAL_COOLDOWN_MS = 1400;
-  const START_VERIFY_INTERVAL_MS = 250;
-  const START_VERIFY_TIMEOUT_MS = 5000;
+  const BUSY_KEYWORDS = [
+    'thinking',
+    'generating',
+    'creating',
+    'rendering',
+    'researching',
+    'searching',
+    'processing',
+    'working',
+    'loading',
+    '답변 생성',
+    '생성 중',
+    '생각 중',
+    '처리 중',
+    '렌더링 중',
+    '검색 중'
+  ];
 
-  const COMPLETION_POLL_MS = 900;
-  const MIN_COMPLETION_MS = 5000;
-  const QUIET_WINDOW_MS = 4200;
-  const NO_BUSY_WINDOW_MS = 1800;
-  const STABLE_TICKS_REQUIRED = 5;
+  const START_SIGNAL_COOLDOWN_MS = 1300;
+  const START_VERIFY_INTERVAL_MS = 250;
+  const START_VERIFY_TIMEOUT_MS = 4500;
+
+  const COMPLETION_POLL_MS = 800;
+  const MIN_COMPLETION_MS = 3500;
+  const QUIET_WINDOW_MS = 3200;
+  const NO_BUSY_WINDOW_MS = 1400;
+  const STABLE_TICKS_REQUIRED = 4;
+  const HARD_FALLBACK_COMPLETION_MS = 9000;
 
   let monitoring = false;
   let observer = null;
@@ -113,18 +134,49 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     );
   }
 
-  function getPrimaryComposer() {
-    const candidates = Array.from(
-      document.querySelectorAll(
-        'textarea, [contenteditable="true"], [role="textbox"], input[type="text"], input:not([type])'
-      )
-    ).filter(isVisible);
+  function dedupeElements(elements) {
+    const seen = new Set();
+    const result = [];
 
-    candidates.sort((a, b) => {
-      const ra = a.getBoundingClientRect();
-      const rb = b.getBoundingClientRect();
-      return rb.bottom - ra.bottom;
-    });
+    for (const el of elements) {
+      if (!(el instanceof Element)) continue;
+      if (seen.has(el)) continue;
+      seen.add(el);
+      result.push(el);
+    }
+
+    return result;
+  }
+
+  function getVisibleElementsBySelector(selector) {
+    try {
+      return Array.from(document.querySelectorAll(selector)).filter(isVisible);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function getPrimaryComposer() {
+    const candidates = dedupeElements(
+      [
+        ...getVisibleElementsBySelector('textarea'),
+        ...getVisibleElementsBySelector('[contenteditable="true"]'),
+        ...getVisibleElementsBySelector('[role="textbox"]'),
+        ...getVisibleElementsBySelector('input[type="text"]'),
+        ...getVisibleElementsBySelector('input:not([type])')
+      ]
+    )
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width >= 120 && rect.height >= 18;
+      })
+      .sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+
+        if (rb.bottom !== ra.bottom) return rb.bottom - ra.bottom;
+        return rb.width * rb.height - ra.width * ra.height;
+      });
 
     return candidates[0] || null;
   }
@@ -143,52 +195,58 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     if (!(button instanceof Element) || !isVisible(button)) return false;
     if (button.matches('[disabled], [aria-disabled="true"]')) return false;
 
-    if (
-      button.matches('button[data-testid="send-button"]') ||
-      button.matches('button[aria-label*="Send"]') ||
-      button.matches('button[aria-label*="전송"]')
-    ) {
-      return true;
-    }
-
     const text = elementText(button);
     if (!text) return false;
     if (STOP_KEYWORDS.some((keyword) => text.includes(keyword))) return false;
 
-    return SEND_KEYWORDS.some((keyword) => text.includes(keyword));
-  }
-
-  function isPotentialStopButton(button) {
-    if (!(button instanceof Element) || !isVisible(button)) return false;
-
     if (
-      button.matches('button[data-testid="stop-button"]') ||
-      button.matches('button[aria-label*="Stop"]') ||
-      button.matches('button[aria-label*="Cancel"]') ||
-      button.matches('button[aria-label*="중지"]') ||
-      button.matches('button[aria-label*="취소"]')
+      button.matches('button[data-testid="send-button"]') ||
+      button.matches('button[aria-label*="Send"]') ||
+      button.matches('button[aria-label*="Submit"]') ||
+      button.matches('button[aria-label*="Generate"]') ||
+      button.matches('button[aria-label*="Create"]') ||
+      button.matches('button[aria-label*="Imagine"]') ||
+      button.matches('button[aria-label*="Run"]') ||
+      button.matches('button[aria-label*="전송"]') ||
+      button.matches('button[aria-label*="생성"]')
     ) {
       return true;
     }
 
-    const text = elementText(button);
+    return SEND_KEYWORDS.some((keyword) => text.includes(keyword));
+  }
+
+  function isPotentialStopControl(el) {
+    if (!(el instanceof Element) || !isVisible(el)) return false;
+
+    if (
+      el.matches('button[data-testid="stop-button"]') ||
+      el.matches('button[aria-label*="Stop"]') ||
+      el.matches('button[aria-label*="Cancel"]') ||
+      el.matches('button[aria-label*="중지"]') ||
+      el.matches('button[aria-label*="취소"]')
+    ) {
+      return true;
+    }
+
+    const text = elementText(el);
     if (!text) return false;
 
     return STOP_KEYWORDS.some((keyword) => text.includes(keyword));
   }
 
-  function hasStopButton() {
+  function hasStopControl() {
     const controls = Array.from(
       document.querySelectorAll(
         'button, [role="button"], input[type="button"], input[type="submit"]'
       )
     ).filter(isVisible);
 
-    return controls.some((button) => isPotentialStopButton(button));
+    return controls.some((el) => isPotentialStopControl(el));
   }
 
   function hasBusyIndicator() {
-    if (hasStopButton()) return true;
+    if (hasStopControl()) return true;
 
     const busySelectors = [
       '[aria-busy="true"]',
@@ -204,100 +262,53 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     ];
 
     for (const selector of busySelectors) {
-      const nodes = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+      const nodes = getVisibleElementsBySelector(selector);
       if (nodes.length > 0) return true;
     }
 
-    const statusNodes = Array.from(
+    const nodes = Array.from(
       document.querySelectorAll('[role="status"], [aria-live], button, [role="button"]')
     ).filter(isVisible);
 
-    const busyWords = [
-      'thinking',
-      'generating',
-      'processing',
-      'rendering',
-      'searching',
-      'working',
-      '답변 생성',
-      '생성 중',
-      '생각 중',
-      '처리 중',
-      '렌더링 중',
-      '검색 중'
-    ];
-
-    return statusNodes.some((node) => {
+    return nodes.some((node) => {
       const text = elementText(node);
-      return busyWords.some((word) => text.includes(word));
+      return BUSY_KEYWORDS.some((keyword) => text.includes(keyword));
     });
   }
 
-  function getAssistantNodes() {
+  function getOutputNodes() {
     const selectors = [
       '[data-message-author-role="assistant"]',
       '[data-testid*="assistant"]',
       '[class*="assistant"]',
-      'main article',
-      '[class*="message"]',
       '[class*="response"]',
-      '[class*="answer"]'
+      '[class*="answer"]',
+      '[class*="message"]',
+      'main article',
+      'article',
+      'main'
     ];
 
-    const seen = new Set();
-    const nodes = [];
+    const nodes = dedupeElements(
+      selectors.flatMap((selector) => getVisibleElementsBySelector(selector))
+    ).filter((el) => {
+      const textLength = normalizeText(el.textContent || '').length;
+      const mediaCount = el.querySelectorAll('img, canvas, svg, video').length;
+      return textLength > 0 || mediaCount > 0 || el.matches('main, article');
+    });
 
-    for (const selector of selectors) {
-      let found = [];
-      try {
-        found = Array.from(document.querySelectorAll(selector));
-      } catch (error) {
-        found = [];
-      }
-
-      for (const node of found) {
-        if (!(node instanceof Element)) continue;
-        if (!isVisible(node)) continue;
-        if (seen.has(node)) continue;
-
-        const textLength = normalizeText(node.textContent || '').length;
-        const mediaCount = node.querySelectorAll('img, canvas, svg, video').length;
-
-        if (textLength === 0 && mediaCount === 0 && !node.matches('main, article')) {
-          continue;
-        }
-
-        seen.add(node);
-        nodes.push(node);
-      }
-    }
-
-    return nodes;
+    return nodes.slice(-8);
   }
 
-  function getLatestAssistantNode() {
-    const nodes = getAssistantNodes();
+  function getLatestOutputNode() {
+    const nodes = getOutputNodes();
     return nodes.length ? nodes[nodes.length - 1] : null;
   }
 
-  function getNearbyCopySearchRoots(baseNode) {
-    if (!(baseNode instanceof Element)) return [];
+  function isPotentialCopyControl(el) {
+    if (!(el instanceof Element) || !isVisible(el)) return false;
 
-    const roots = [baseNode];
-
-    if (baseNode.parentElement) roots.push(baseNode.parentElement);
-    if (baseNode.parentElement?.parentElement) roots.push(baseNode.parentElement.parentElement);
-
-    const next = baseNode.nextElementSibling;
-    if (next) roots.push(next);
-
-    return [...new Set(roots)];
-  }
-
-  function isPotentialCopyControl(control) {
-    if (!(control instanceof Element) || !isVisible(control)) return false;
-
-    const text = elementText(control);
+    const text = elementText(el);
     if (!text) return false;
 
     if (IGNORE_COPY_KEYWORDS.some((keyword) => text.includes(keyword))) {
@@ -305,11 +316,12 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     }
 
     if (
-      control.matches('button[aria-label*="Copy"]') ||
-      control.matches('button[aria-label*="복사"]') ||
-      control.matches('[data-testid*="copy"]') ||
-      control.matches('[title*="Copy"]') ||
-      control.matches('[title*="복사"]')
+      el.matches('button[aria-label*="Copy"]') ||
+      el.matches('button[aria-label*="복사"]') ||
+      el.matches('[data-testid*="copy"]') ||
+      el.matches('[title*="Copy"]') ||
+      el.matches('[title*="복사"]') ||
+      el.matches('[class*="copy"]')
     ) {
       return true;
     }
@@ -318,19 +330,24 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
   }
 
   function hasResponseCopyAffordance() {
-    const latestNode = getLatestAssistantNode();
-    if (!latestNode) return false;
+    const latest = getLatestOutputNode();
+    if (!latest) return false;
 
-    const roots = getNearbyCopySearchRoots(latestNode);
+    const roots = [
+      latest,
+      latest.parentElement,
+      latest.parentElement?.parentElement,
+      latest.nextElementSibling
+    ].filter(Boolean);
 
     for (const root of roots) {
       const controls = Array.from(
         root.querySelectorAll(
-          'button, [role="button"], [data-testid], [title], .copy, [class*="copy"]'
+          'button, [role="button"], [data-testid], [title], [class*="copy"]'
         )
       ).filter(isVisible);
 
-      if (controls.some((control) => isPotentialCopyControl(control))) {
+      if (controls.some((el) => isPotentialCopyControl(el))) {
         return true;
       }
     }
@@ -339,30 +356,31 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
   }
 
   function getOutputMetrics() {
-    const assistantNodes = getAssistantNodes();
-    const lastFew = assistantNodes.slice(-4);
+    const nodes = getOutputNodes();
+    const lastFew = nodes.slice(-4);
 
     let textLength = 0;
-    let imageCount = 0;
+    let mediaCount = 0;
     let codeCount = 0;
 
     for (const node of lastFew) {
       textLength += normalizeText(node.textContent || '').length;
-      imageCount += node.querySelectorAll('img, canvas, svg, video').length;
+      mediaCount += node.querySelectorAll('img, canvas, svg, video').length;
       codeCount += node.querySelectorAll('pre, code, table').length;
     }
 
     const busy = hasBusyIndicator() ? 1 : 0;
-    const hasCopy = hasResponseCopyAffordance() ? 1 : 0;
+    const copyReady = hasResponseCopyAffordance() ? 1 : 0;
+    const outputExists = nodes.length > 0 || textLength > 0 || mediaCount > 0 ? 1 : 0;
 
     return {
-      assistantCount: assistantNodes.length,
       textLength,
-      imageCount,
+      mediaCount,
       codeCount,
       busy,
-      hasCopy,
-      signature: `${assistantNodes.length}:${textLength}:${imageCount}:${codeCount}:${busy}:${hasCopy}`
+      copyReady,
+      outputExists,
+      signature: `${nodes.length}:${textLength}:${mediaCount}:${codeCount}:${busy}:${copyReady}`
     };
   }
 
@@ -418,6 +436,29 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     });
   }
 
+  function evaluateStartEvidence(state) {
+    const now = Date.now();
+    const elapsed = now - state.createdAt;
+
+    const currentMetrics = getOutputMetrics();
+    const currentComposer = getPrimaryComposer();
+    const currentComposerText = normalizeText(getComposerText(currentComposer));
+    const previousComposerText = normalizeText(state.beforeComposerText);
+
+    const composerCleared =
+      previousComposerText.length > 0 &&
+      currentComposerText.length <= Math.floor(previousComposerText.length * 0.3);
+
+    const outputChanged = currentMetrics.signature !== state.beforeMetrics.signature;
+    const busy = currentMetrics.busy === 1;
+
+    if ((busy && elapsed > 250) || (composerCleared && elapsed > 120) || (busy && outputChanged)) {
+      return true;
+    }
+
+    return false;
+  }
+
   function queueStartVerification(reason) {
     if (monitoring) return;
 
@@ -428,27 +469,16 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
     pendingStart = {
       reason,
       createdAt: Date.now(),
-      beforeComposerText: normalizeText(getComposerText(composer)),
+      beforeComposerText: getComposerText(composer),
       beforeMetrics: getOutputMetrics()
     };
 
     startVerifyTimer = setInterval(() => {
       if (!pendingStart) return;
 
-      const now = Date.now();
-      const elapsed = now - pendingStart.createdAt;
-      const composerNow = getPrimaryComposer();
-      const composerTextNow = normalizeText(getComposerText(composerNow));
-      const metricsNow = getOutputMetrics();
+      const elapsed = Date.now() - pendingStart.createdAt;
 
-      const composerCleared =
-        pendingStart.beforeComposerText.length > 0 &&
-        composerTextNow.length <= Math.floor(pendingStart.beforeComposerText.length * 0.3);
-
-      const outputChanged = metricsNow.signature !== pendingStart.beforeMetrics.signature;
-      const busy = metricsNow.busy === 1;
-
-      if ((busy && elapsed > 250) || (composerCleared && elapsed > 120) || (busy && outputChanged)) {
+      if (evaluateStartEvidence(pendingStart)) {
         notifyPromptStarted();
         return;
       }
@@ -506,7 +536,6 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
       const now = Date.now();
       const metrics = getOutputMetrics();
       const busy = metrics.busy === 1;
-      const copyReady = metrics.hasCopy === 1;
 
       markMeaningfulChange(metrics, busy);
 
@@ -517,19 +546,25 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
 
       const copyBasedCompletion =
         enoughTimePassed &&
-        copyReady &&
+        metrics.copyReady === 1 &&
         !busy &&
         noBusyLongEnough &&
-        stableTickCount >= 2;
+        stableTickCount >= 1;
 
       const conservativeCompletion =
         enoughTimePassed &&
         !busy &&
         noBusyLongEnough &&
-        quietEnough &&
-        stableTickCount >= STABLE_TICKS_REQUIRED;
+        (quietEnough || stableTickCount >= STABLE_TICKS_REQUIRED) &&
+        metrics.outputExists === 1;
 
-      if (copyBasedCompletion || conservativeCompletion) {
+      const hardFallbackCompletion =
+        now - promptStartedAt >= HARD_FALLBACK_COMPLETION_MS &&
+        !busy &&
+        noBusyLongEnough &&
+        metrics.outputExists === 1;
+
+      if (copyBasedCompletion || conservativeCompletion || hardFallbackCompletion) {
         notifyCompleted();
       }
     }, COMPLETION_POLL_MS);
@@ -546,7 +581,7 @@ if (!globalThis.__LLM_WAIT_SWITCHER_LLM_LOADED__) {
       );
 
       if (!button) return;
-      if (isPotentialStopButton(button)) return;
+      if (isPotentialStopControl(button)) return;
 
       if (isPotentialSendButton(button)) {
         queueStartVerification('click');
