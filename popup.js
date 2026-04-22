@@ -3,10 +3,16 @@ const STORAGE_KEYS = {
   SETTINGS: 'settings'
 };
 
+const DEFAULT_SETTINGS = {
+  autoPlayEnabled: true,
+  autoPauseOnReturnEnabled: true
+};
+
 const targetInfoEl = document.getElementById('targetInfo');
 const setCurrentTabBtn = document.getElementById('setCurrentTabBtn');
 const clearTargetTabBtn = document.getElementById('clearTargetTabBtn');
 const autoPlayEnabledEl = document.getElementById('autoPlayEnabled');
+const autoPauseOnReturnEnabledEl = document.getElementById('autoPauseOnReturnEnabled');
 
 async function getStorage(keys) {
   return chrome.storage.local.get(keys);
@@ -43,13 +49,32 @@ function escapeHtml(text) {
     .replaceAll("'", '&#039;');
 }
 
+async function saveSettings(patch) {
+  const data = await getStorage(STORAGE_KEYS.SETTINGS);
+  const prev = {
+    ...DEFAULT_SETTINGS,
+    ...(data[STORAGE_KEYS.SETTINGS] || {})
+  };
+
+  await setStorage({
+    [STORAGE_KEYS.SETTINGS]: {
+      ...prev,
+      ...patch
+    }
+  });
+}
+
 async function refreshUI() {
   const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SETTINGS]);
   const targetTab = data[STORAGE_KEYS.TARGET_TAB] || null;
-  const settings = data[STORAGE_KEYS.SETTINGS] || { autoPlayEnabled: true };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    ...(data[STORAGE_KEYS.SETTINGS] || {})
+  };
 
   renderTargetInfo(targetTab);
-  autoPlayEnabledEl.checked = settings.autoPlayEnabled !== false;
+  autoPlayEnabledEl.checked = settings.autoPlayEnabled;
+  autoPauseOnReturnEnabledEl.checked = settings.autoPauseOnReturnEnabled;
 }
 
 setCurrentTabBtn.addEventListener('click', async () => {
@@ -76,14 +101,14 @@ clearTargetTabBtn.addEventListener('click', async () => {
 });
 
 autoPlayEnabledEl.addEventListener('change', async () => {
-  const data = await getStorage(STORAGE_KEYS.SETTINGS);
-  const prev = data[STORAGE_KEYS.SETTINGS] || {};
+  await saveSettings({
+    autoPlayEnabled: autoPlayEnabledEl.checked
+  });
+});
 
-  await setStorage({
-    [STORAGE_KEYS.SETTINGS]: {
-      ...prev,
-      autoPlayEnabled: autoPlayEnabledEl.checked
-    }
+autoPauseOnReturnEnabledEl.addEventListener('change', async () => {
+  await saveSettings({
+    autoPauseOnReturnEnabled: autoPauseOnReturnEnabledEl.checked
   });
 });
 

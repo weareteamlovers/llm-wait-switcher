@@ -1,9 +1,12 @@
-// background.js
-
 const STORAGE_KEYS = {
   TARGET_TAB: 'targetTab',
   SETTINGS: 'settings',
   SESSIONS: 'sessions'
+};
+
+const DEFAULT_SETTINGS = {
+  autoPlayEnabled: true,
+  autoPauseOnReturnEnabled: true
 };
 
 async function getStorage(keys) {
@@ -54,13 +57,14 @@ async function saveSessions(sessions) {
 
 chrome.runtime.onInstalled.addListener(async () => {
   const data = await getStorage([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SESSIONS]);
-  if (!data[STORAGE_KEYS.SETTINGS]) {
-    await setStorage({
-      [STORAGE_KEYS.SETTINGS]: {
-        autoPlayEnabled: true
-      }
-    });
-  }
+
+  await setStorage({
+    [STORAGE_KEYS.SETTINGS]: {
+      ...DEFAULT_SETTINGS,
+      ...(data[STORAGE_KEYS.SETTINGS] || {})
+    }
+  });
+
   if (!data[STORAGE_KEYS.SESSIONS]) {
     await setStorage({
       [STORAGE_KEYS.SESSIONS]: {}
@@ -80,7 +84,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SETTINGS]);
         const targetTabData = data[STORAGE_KEYS.TARGET_TAB];
-        const settings = data[STORAGE_KEYS.SETTINGS] || { autoPlayEnabled: true };
+        const settings = {
+          ...DEFAULT_SETTINGS,
+          ...(data[STORAGE_KEYS.SETTINGS] || {})
+        };
 
         if (!targetTabData?.tabId) {
           sendResponse({ ok: false, reason: 'NO_TARGET_TAB' });
@@ -134,8 +141,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
+        const data = await getStorage(STORAGE_KEYS.SETTINGS);
+        const settings = {
+          ...DEFAULT_SETTINGS,
+          ...(data[STORAGE_KEYS.SETTINGS] || {})
+        };
+
         const validTargetTab = await validateTab(session.targetTabId);
-        if (validTargetTab?.id && isMediaPlatform(session.targetUrl || validTargetTab.url || '')) {
+        if (
+          settings.autoPauseOnReturnEnabled &&
+          validTargetTab?.id &&
+          isMediaPlatform(session.targetUrl || validTargetTab.url || '')
+        ) {
           await new Promise((resolve) => {
             chrome.tabs.sendMessage(
               session.targetTabId,
@@ -166,10 +183,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           STORAGE_KEYS.SETTINGS,
           STORAGE_KEYS.SESSIONS
         ]);
+
         sendResponse({
           ok: true,
           targetTab: data[STORAGE_KEYS.TARGET_TAB] || null,
-          settings: data[STORAGE_KEYS.SETTINGS] || { autoPlayEnabled: true },
+          settings: {
+            ...DEFAULT_SETTINGS,
+            ...(data[STORAGE_KEYS.SETTINGS] || {})
+          },
           sessions: data[STORAGE_KEYS.SESSIONS] || {}
         });
         return;
