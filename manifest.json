@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Wait Switcher",
+  "version": "0.1.0",
+  "description": "Switch to a user-selected tab while LLM response is generating, then return automatically.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "*://*.youtube.com/*",
+    "*://www.netflix.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "LLM Wait Switcher",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["llm-content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://www.netflix.com/*"
+      ],
+      "js": ["player-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

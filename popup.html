@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LLM Wait Switcher</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>LLM Wait Switcher</h1>
+
+      <section class="card">
+        <div class="label">현재 지정된 대상 탭</div>
+        <div id="targetInfo" class="target-info">없음</div>
+      </section>
+
+      <section class="card controls">
+        <button id="setCurrentTabBtn">현재 탭을 대상 탭으로 지정</button>
+        <button id="clearTargetTabBtn" class="secondary">대상 탭 해제</button>
+      </section>
+
+      <section class="card">
+        <label class="toggle-row">
+          <input type="checkbox" id="autoPlayEnabled" />
+          <span>영상 플랫폼이면 자동 재생 시도</span>
+        </label>
+      </section>
+
+      <section class="card hint">
+        ChatGPT에서 프롬프트를 보내면 지정된 탭으로 이동합니다.<br />
+        응답이 끝나면 원래 탭으로 돌아옵니다.
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
