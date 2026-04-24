@@ -1,44 +1,56 @@
 <!doctype html>
 <html lang="ko">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LLM Wait Switcher</title>
-    <link rel="stylesheet" href="popup.css" />
-  </head>
-  <body>
-    <div class="container">
-      <h1>LLM Wait Switcher</h1>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LLM Wait Switcher</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="app">
+    <h1>LLM Wait Switcher</h1>
 
-      <div class="card">
-        <div class="label">현재 지정된 대상 탭</div>
-        <div id="targetInfo" class="target-info">없음</div>
-        <div id="runtimeInfo" class="runtime-info">활성 세션 없음</div>
+    <section class="card">
+      <div class="row space-between">
+        <strong>현재 목표 탭</strong>
+        <button id="clearTargetTabBtn" class="ghost">해제</button>
+      </div>
+      <div id="targetInfo" class="target-info">없음</div>
+    </section>
+
+    <section class="card">
+      <div class="row space-between">
+        <strong>열려 있는 탭에서 선택</strong>
+        <button id="refreshTabsBtn" class="ghost">새로고침</button>
       </div>
 
-      <div class="controls card">
-        <button id="setCurrentTabBtn">현재 탭을 대상 탭으로 지정</button>
-        <button id="clearTargetTabBtn" class="secondary">대상 탭 해제</button>
+      <label class="label" for="tabSelect">목표 콘텐츠 탭</label>
+      <select id="tabSelect"></select>
+
+      <div class="actions">
+        <button id="saveSelectedTabBtn">선택한 탭으로 설정</button>
+        <button id="setCurrentTabBtn" class="ghost">현재 탭으로 설정</button>
       </div>
+      <p class="hint">AI 탭과 다른 탭을 목표 탭으로 지정해야 자동 전환됩니다.</p>
+    </section>
 
-      <div class="card">
-        <label class="toggle-row">
-          <input id="autoPlayEnabled" type="checkbox" />
-          <span>대상 탭이 미디어 플랫폼이면 자동 재생 시도</span>
-        </label>
+    <section class="card">
+      <label class="toggle">
+        <input type="checkbox" id="autoPlayEnabled">
+        <span>전환 시 미디어 자동 재생 시도</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="autoPauseOnReturnEnabled">
+        <span>복귀 시 미디어 자동 일시정지 시도</span>
+      </label>
+    </section>
 
-        <label class="toggle-row">
-          <input id="autoPauseOnReturnEnabled" type="checkbox" />
-          <span>LLM 응답 완료 후 자동 일시중지</span>
-        </label>
-      </div>
+    <section class="card">
+      <strong>상태</strong>
+      <div id="runtimeInfo" class="runtime-info">불러오는 중...</div>
+    </section>
+  </main>
 
-      <div class="card hint">
-        대상 탭은 유튜브, 넷플릭스 같은 콘텐츠 탭으로 지정하세요.<br />
-        그 뒤 AI 탭에서 질문을 보내면 콘텐츠 탭으로 이동하고, 응답이 끝나면 원래 AI 탭으로 복귀합니다.
-      </div>
-    </div>
-
-    <script src="popup.js"></script>
-  </body>
+  <script src="popup.js"></script>
+</body>
 </html>

@@ -2,8 +2,12 @@
   "manifest_version": 3,
   "name": "LLM Wait Switcher",
   "version": "0.4.0",
-  "description": "Switch to a selected content tab while an AI service is generating, then return automatically when it finishes.",
-  "permissions": ["tabs", "storage", "scripting"],
+  "description": "Switch to a chosen content tab while an AI page is generating, then return automatically when it finishes.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "scripting"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -62,8 +66,10 @@
         "https://www.kimi.com/*",
         "https://kimi.com/*"
       ],
-      "js": ["llm-content.js"],
-      "run_at": "document_start"
+      "js": [
+        "llm-content.js"
+      ],
+      "run_at": "document_idle"
     },
     {
       "matches": [
@@ -75,13 +81,17 @@
         "*://vimeo.com/*",
         "*://player.vimeo.com/*"
       ],
-      "js": ["player-content.js"],
+      "js": [
+        "player-content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-bridge.js"],
+      "resources": [
+        "page-bridge.js"
+      ],
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",

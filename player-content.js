@@ -1,60 +1,53 @@
 (() => {
-  if (globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) return;
-  globalThis.__LLM_WAIT_SWITCHER_PLAYER_LOADED__ = true;
+  if (window.__LLM_WAIT_SWITCHER_PLAYER_LOADED__) return;
+  window.__LLM_WAIT_SWITCHER_PLAYER_LOADED__ = true;
 
-  function getMediaElements() {
-    return Array.from(document.querySelectorAll('video, audio')).filter((el) => {
-      try {
-        const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      } catch {
-        return false;
-      }
-    });
-  }
-
-  function getPrimaryMedia() {
-    const media = getMediaElements();
-    if (media.length === 0) return null;
-    media.sort((a, b) => {
+  function getMediaCandidates() {
+    const nodes = Array.from(document.querySelectorAll('video, audio'));
+    return nodes.filter((node) => {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    }).sort((a, b) => {
       const ra = a.getBoundingClientRect();
       const rb = b.getBoundingClientRect();
-      return rb.width * rb.height - ra.width * ra.height;
+      return (rb.width * rb.height) - (ra.width * ra.height);
     });
-    return media[0] || null;
   }
 
   async function tryPlay() {
-    const media = getPrimaryMedia();
+    const media = getMediaCandidates()[0];
     if (!media) return { ok: false, reason: 'NO_MEDIA' };
+
     try {
       media.muted = false;
       await media.play();
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      return { ok: false, reason: 'PLAY_FAILED' };
     }
   }
 
-  async function tryPause() {
-    const media = getPrimaryMedia();
+  function tryPause() {
+    const media = getMediaCandidates()[0];
     if (!media) return { ok: false, reason: 'NO_MEDIA' };
+
     try {
       media.pause();
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      return { ok: false, reason: 'PAUSE_FAILED' };
     }
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
-      if (message?.type === 'TRY_PLAY') {
+      if (message.type === 'TRY_PLAY') {
         sendResponse(await tryPlay());
         return;
       }
-      if (message?.type === 'TRY_PAUSE') {
-        sendResponse(await tryPause());
+      if (message.type === 'TRY_PAUSE') {
+        sendResponse(tryPause());
         return;
       }
       sendResponse({ ok: false, reason: 'UNKNOWN_MESSAGE' });

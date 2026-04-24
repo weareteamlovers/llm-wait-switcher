@@ -10,47 +10,15 @@ const DEFAULT_SETTINGS = {
   debugEnabled: false
 };
 
-const LLM_URL_PATTERNS = [
-  /^https:\/\/chatgpt\.com\//i,
-  /^https:\/\/chat\.openai\.com\//i,
-  /^https:\/\/claude\.ai\//i,
-  /^https:\/\/code\.claude\.com\//i,
-  /^https:\/\/gemini\.google\.com\//i,
-  /^https:\/\/aistudio\.google\.com\//i,
-  /^https:\/\/copilot\.microsoft\.com\//i,
-  /^https:\/\/grok\.com\//i,
-  /^https:\/\/www\.perplexity\.ai\//i,
-  /^https:\/\/poe\.com\//i,
-  /^https:\/\/chat\.deepseek\.com\//i,
-  /^https:\/\/chat\.mistral\.ai\//i,
-  /^https:\/\/www\.midjourney\.com\//i,
-  /^https:\/\/alpha\.midjourney\.com\//i,
-  /^https:\/\/cursor\.com\//i,
-  /^https:\/\/chat\.qwen\.ai\//i,
-  /^https:\/\/qwen\.ai\//i,
-  /^https:\/\/www\.kimi\.com\//i,
-  /^https:\/\/kimi\.com\//i
-];
+const MEDIA_URL_RE = /youtube\.com|netflix\.com|disneyplus\.com|primevideo\.com|twitch\.tv|vimeo\.com/i;
+const LLM_URL_RE = /(chatgpt\.com|chat\.openai\.com|claude\.ai|code\.claude\.com|gemini\.google\.com|aistudio\.google\.com|copilot\.microsoft\.com|grok\.com|perplexity\.ai|poe\.com|deepseek\.com|mistral\.ai|midjourney\.com|cursor\.com|qwen\.ai|kimi\.com)/i;
 
-const MEDIA_URL_PATTERNS = [
-  /youtube\.com/i,
-  /netflix\.com/i,
-  /disneyplus\.com/i,
-  /primevideo\.com/i,
-  /twitch\.tv/i,
-  /vimeo\.com/i
-];
-
-function matchesAny(url = '', patterns = []) {
-  return patterns.some((pattern) => pattern.test(url));
+function isMediaUrl(url = '') {
+  return MEDIA_URL_RE.test(url);
 }
 
 function isLlmUrl(url = '') {
-  return matchesAny(url, LLM_URL_PATTERNS);
-}
-
-function isMediaUrl(url = '') {
-  return matchesAny(url, MEDIA_URL_PATTERNS);
+  return LLM_URL_RE.test(url);
 }
 
 async function getStorage(keys) {
@@ -82,7 +50,7 @@ async function saveSessions(sessions) {
 async function validateTab(tabId) {
   try {
     return await chrome.tabs.get(tabId);
-  } catch {
+  } catch (error) {
     return null;
   }
 }
@@ -94,71 +62,113 @@ async function focusTab(tabId, windowId) {
     }
     await chrome.tabs.update(tabId, { active: true });
     return true;
-  } catch {
+  } catch (error) {
     return false;
   }
 }
 
-async function injectIfNeeded(tabId, file) {
+async function injectScriptIfNeeded(tabId, file) {
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: [file] });
-  } catch {
-    // ignore tabs where injection is unsupported
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [file]
+    });
+  } catch (error) {
+    // Ignore restricted tabs or duplicate injections.
   }
 }
 
-async function ensureScriptsForExistingTabs() {
+async function maybeSendToPlayer(tabId, type) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type });
+  } catch (error) {
+    // Ignore message delivery errors.
+  }
+}
+
+async function ensureContentScriptsForOpenTabs() {
   try {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
       if (!tab.id || !tab.url) continue;
-      if (isLlmUrl(tab.url)) await injectIfNeeded(tab.id, 'llm-content.js');
-      if (isMediaUrl(tab.url)) await injectIfNeeded(tab.id, 'player-content.js');
+      if (isLlmUrl(tab.url)) {
+        await injectScriptIfNeeded(tab.id, 'llm-content.js');
+      }
+      if (isMediaUrl(tab.url)) {
+        await injectScriptIfNeeded(tab.id, 'player-content.js');
+      }
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    // Ignore startup injection failures.
   }
 }
 
-async function initStorage() {
-  const data = await getStorage([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SESSIONS]);
-  await setStorage({
-    [STORAGE_KEYS.SETTINGS]: {
-      ...DEFAULT_SETTINGS,
-      ...(data[STORAGE_KEYS.SETTINGS] || {})
-    },
-    [STORAGE_KEYS.SESSIONS]: data[STORAGE_KEYS.SESSIONS] || {}
-  });
-}
-
-chrome.runtime.onInstalled.addListener(async () => {
-  await initStorage();
-  await ensureScriptsForExistingTabs();
-});
-
-chrome.runtime.onStartup.addListener(async () => {
-  await initStorage();
-  await ensureScriptsForExistingTabs();
-});
-
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete' || !tab.url) return;
-  if (isLlmUrl(tab.url)) await injectIfNeeded(tabId, 'llm-content.js');
-  if (isMediaUrl(tab.url)) await injectIfNeeded(tabId, 'player-content.js');
-});
-
-chrome.tabs.onRemoved.addListener(async (removedTabId) => {
+async function cleanupInvalidState() {
   const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SESSIONS]);
   const targetTab = data[STORAGE_KEYS.TARGET_TAB];
   const sessions = data[STORAGE_KEYS.SESSIONS] || {};
+  let sessionsChanged = false;
 
-  if (targetTab?.tabId === removedTabId) {
+  if (targetTab?.tabId) {
+    const validTarget = await validateTab(targetTab.tabId);
+    if (!validTarget?.id) {
+      await removeStorage(STORAGE_KEYS.TARGET_TAB);
+    }
+  }
+
+  for (const [sourceTabId, session] of Object.entries(sessions)) {
+    const sourceValid = await validateTab(session.sourceTabId);
+    const targetValid = await validateTab(session.targetTabId);
+    if (!sourceValid?.id || !targetValid?.id) {
+      delete sessions[sourceTabId];
+      sessionsChanged = true;
+    }
+  }
+
+  if (sessionsChanged) {
+    await saveSessions(sessions);
+  }
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+  const data = await getStorage([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SESSIONS]);
+  await setStorage({
+    [STORAGE_KEYS.SETTINGS]: { ...DEFAULT_SETTINGS, ...(data[STORAGE_KEYS.SETTINGS] || {}) },
+    [STORAGE_KEYS.SESSIONS]: data[STORAGE_KEYS.SESSIONS] || {}
+  });
+  await ensureContentScriptsForOpenTabs();
+  await cleanupInvalidState();
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+  await ensureContentScriptsForOpenTabs();
+  await cleanupInvalidState();
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!tab.url) return;
+  if (changeInfo.status === 'complete') {
+    if (isLlmUrl(tab.url)) {
+      await injectScriptIfNeeded(tabId, 'llm-content.js');
+    }
+    if (isMediaUrl(tab.url)) {
+      await injectScriptIfNeeded(tabId, 'player-content.js');
+    }
+  }
+});
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SESSIONS]);
+  const targetTab = data[STORAGE_KEYS.TARGET_TAB];
+  const sessions = data[STORAGE_KEYS.SESSIONS] || {};
+  let changed = false;
+
+  if (targetTab?.tabId === tabId) {
     await removeStorage(STORAGE_KEYS.TARGET_TAB);
   }
 
-  let changed = false;
   for (const [sourceTabId, session] of Object.entries(sessions)) {
-    if (session.sourceTabId === removedTabId || session.targetTabId === removedTabId) {
+    if (session.sourceTabId === tabId || session.targetTabId === tabId) {
       delete sessions[sourceTabId];
       changed = true;
     }
@@ -172,12 +182,29 @@ chrome.tabs.onRemoved.addListener(async (removedTabId) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
-      if (message?.type === 'GET_RUNTIME_STATE') {
-        const data = await getStorage([
-          STORAGE_KEYS.TARGET_TAB,
-          STORAGE_KEYS.SETTINGS,
-          STORAGE_KEYS.SESSIONS
-        ]);
+      if (message.type === 'SET_TARGET_TAB') {
+        const targetTab = await validateTab(message.tabId);
+        if (!targetTab?.id) {
+          sendResponse({ ok: false, reason: 'TAB_NOT_FOUND' });
+          return;
+        }
+
+        await setStorage({
+          [STORAGE_KEYS.TARGET_TAB]: {
+            tabId: targetTab.id,
+            windowId: targetTab.windowId,
+            title: targetTab.title || '',
+            url: targetTab.url || ''
+          }
+        });
+
+        sendResponse({ ok: true });
+        return;
+      }
+
+      if (message.type === 'GET_RUNTIME_STATE') {
+        await cleanupInvalidState();
+        const data = await getStorage([STORAGE_KEYS.TARGET_TAB, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SESSIONS]);
         sendResponse({
           ok: true,
           targetTab: data[STORAGE_KEYS.TARGET_TAB] || null,
@@ -187,64 +214,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
-      if (message?.type === 'LLM_PROMPT_STARTED') {
+      if (message.type === 'LLM_PROMPT_STARTED') {
         const sourceTab = sender.tab;
-        if (!sourceTab?.id) {
+        if (!sourceTab?.id || !sourceTab.url) {
           sendResponse({ ok: false, reason: 'NO_SOURCE_TAB' });
           return;
         }
 
         const data = await getStorage(STORAGE_KEYS.TARGET_TAB);
-        const target = data[STORAGE_KEYS.TARGET_TAB];
-        if (!target?.tabId) {
+        const targetTabData = data[STORAGE_KEYS.TARGET_TAB];
+        if (!targetTabData?.tabId) {
           sendResponse({ ok: false, reason: 'NO_TARGET_TAB' });
           return;
         }
 
-        if (target.tabId === sourceTab.id) {
-          sendResponse({ ok: false, reason: 'TARGET_EQUALS_SOURCE' });
-          return;
-        }
-
-        const targetTab = await validateTab(target.tabId);
-        if (!targetTab?.id) {
+        const targetTab = await validateTab(targetTabData.tabId);
+        if (!targetTab?.id || !targetTab.url) {
           await removeStorage(STORAGE_KEYS.TARGET_TAB);
           sendResponse({ ok: false, reason: 'TARGET_TAB_CLOSED' });
           return;
         }
 
+        if (targetTab.id === sourceTab.id) {
+          sendResponse({ ok: false, reason: 'TARGET_EQUALS_SOURCE' });
+          return;
+        }
+
         const sessions = await getSessions();
+        const existing = sessions[String(sourceTab.id)];
+        if (existing) {
+          sendResponse({ ok: true, duplicate: true });
+          return;
+        }
+
         sessions[String(sourceTab.id)] = {
           sourceTabId: sourceTab.id,
           sourceWindowId: sourceTab.windowId,
-          sourceUrl: sourceTab.url || '',
-          sourceTitle: sourceTab.title || '',
+          sourceUrl: sourceTab.url,
           targetTabId: targetTab.id,
           targetWindowId: targetTab.windowId,
-          targetUrl: targetTab.url || target.url || '',
-          targetTitle: targetTab.title || target.title || '',
-          startedAt: Date.now()
+          targetUrl: targetTab.url,
+          createdAt: Date.now()
         };
         await saveSessions(sessions);
 
-        const settings = await getSettings();
-        if (isMediaUrl(targetTab.url || '')) {
-          await injectIfNeeded(targetTab.id, 'player-content.js');
+        if (isMediaUrl(targetTab.url)) {
+          await injectScriptIfNeeded(targetTab.id, 'player-content.js');
         }
 
-        await focusTab(targetTab.id, targetTab.windowId);
+        const focused = await focusTab(targetTab.id, targetTab.windowId);
+        const settings = await getSettings();
 
-        if (settings.autoPlayEnabled && isMediaUrl(targetTab.url || '')) {
-          chrome.tabs.sendMessage(targetTab.id, { type: 'TRY_PLAY' }, () => {
-            void chrome.runtime.lastError;
-          });
+        if (focused && settings.autoPlayEnabled && isMediaUrl(targetTab.url)) {
+          await maybeSendToPlayer(targetTab.id, 'TRY_PLAY');
         }
 
         sendResponse({ ok: true });
         return;
       }
 
-      if (message?.type === 'LLM_RESPONSE_COMPLETED') {
+      if (message.type === 'LLM_RESPONSE_COMPLETED') {
         const sourceTab = sender.tab;
         if (!sourceTab?.id) {
           sendResponse({ ok: false, reason: 'NO_SOURCE_TAB' });
@@ -259,24 +288,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const settings = await getSettings();
-        const validTarget = await validateTab(session.targetTabId);
-        if (
-          validTarget?.id &&
-          settings.autoPauseOnReturnEnabled &&
-          isMediaUrl(validTarget.url || session.targetUrl || '')
-        ) {
-          await injectIfNeeded(validTarget.id, 'player-content.js');
-          await new Promise((resolve) => {
-            chrome.tabs.sendMessage(validTarget.id, { type: 'TRY_PAUSE' }, () => {
-              void chrome.runtime.lastError;
-              resolve();
-            });
-          });
+        const targetTab = await validateTab(session.targetTabId);
+
+        if (settings.autoPauseOnReturnEnabled && targetTab?.id && isMediaUrl(targetTab.url || session.targetUrl || '')) {
+          await injectScriptIfNeeded(targetTab.id, 'player-content.js');
+          await maybeSendToPlayer(targetTab.id, 'TRY_PAUSE');
         }
 
-        const validSource = await validateTab(session.sourceTabId);
-        if (validSource?.id) {
-          await focusTab(validSource.id, session.sourceWindowId);
+        const sourceValid = await validateTab(session.sourceTabId);
+        if (sourceValid?.id) {
+          await focusTab(sourceValid.id, session.sourceWindowId);
         }
 
         delete sessions[String(sourceTab.id)];
@@ -298,4 +319,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-ensureScriptsForExistingTabs();
+ensureContentScriptsForOpenTabs();

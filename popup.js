@@ -5,19 +5,21 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SETTINGS = {
   autoPlayEnabled: true,
-  autoPauseOnReturnEnabled: true,
-  debugEnabled: false
+  autoPauseOnReturnEnabled: true
 };
 
 const targetInfoEl = document.getElementById('targetInfo');
 const runtimeInfoEl = document.getElementById('runtimeInfo');
+const tabSelectEl = document.getElementById('tabSelect');
+const refreshTabsBtn = document.getElementById('refreshTabsBtn');
+const saveSelectedTabBtn = document.getElementById('saveSelectedTabBtn');
 const setCurrentTabBtn = document.getElementById('setCurrentTabBtn');
 const clearTargetTabBtn = document.getElementById('clearTargetTabBtn');
 const autoPlayEnabledEl = document.getElementById('autoPlayEnabled');
 const autoPauseOnReturnEnabledEl = document.getElementById('autoPauseOnReturnEnabled');
 
 function escapeHtml(text) {
-  return String(text)
+  return String(text || '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -53,6 +55,7 @@ async function saveSettings(patch) {
     ...DEFAULT_SETTINGS,
     ...(data[STORAGE_KEYS.SETTINGS] || {})
   };
+
   await setStorage({
     [STORAGE_KEYS.SETTINGS]: {
       ...previous,
@@ -64,9 +67,11 @@ async function saveSettings(patch) {
 function renderTargetInfo(targetTab) {
   if (!targetTab) {
     targetInfoEl.textContent = '없음';
+    targetInfoEl.classList.add('empty');
     return;
   }
 
+  targetInfoEl.classList.remove('empty');
   targetInfoEl.innerHTML = `
     <div class="target-title">${escapeHtml(targetTab.title || '제목 없음')}</div>
     <div class="target-url">${escapeHtml(targetTab.url || '')}</div>
@@ -74,35 +79,71 @@ function renderTargetInfo(targetTab) {
   `;
 }
 
+function getSelectableTabs(tabs) {
+  return tabs.filter((tab) => {
+    const url = tab.url || '';
+    if (!tab.id) return false;
+    if (!url || url.startsWith('chrome://') || url.startsWith('edge://') || url.startsWith('chrome-extension://')) {
+      return false;
+    }
+    return true;
+  });
+}
+
+async function renderTabSelect(currentTargetTabId = null) {
+  const tabs = await chrome.tabs.query({});
+  const selectableTabs = getSelectableTabs(tabs);
+
+  tabSelectEl.innerHTML = '';
+  if (!selectableTabs.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '선택 가능한 탭이 없습니다';
+    tabSelectEl.appendChild(option);
+    return;
+  }
+
+  for (const tab of selectableTabs) {
+    const option = document.createElement('option');
+    option.value = String(tab.id);
+    const prefix = isMediaPlatform(tab.url || '') ? '[미디어]' : isLlmUrl(tab.url || '') ? '[AI]' : '[탭]';
+    option.textContent = `${prefix} ${tab.title || '제목 없음'}`;
+    option.selected = tab.id === currentTargetTabId;
+    tabSelectEl.appendChild(option);
+  }
+}
+
 async function refreshUI() {
   const runtimeState = await chrome.runtime.sendMessage({ type: 'GET_RUNTIME_STATE' });
   const targetTab = runtimeState?.targetTab || null;
-  const settings = {
-    ...DEFAULT_SETTINGS,
-    ...(runtimeState?.settings || {})
-  };
+  const settings = { ...DEFAULT_SETTINGS, ...(runtimeState?.settings || {}) };
   const sessionCount = Object.keys(runtimeState?.sessions || {}).length;
 
   renderTargetInfo(targetTab);
+  await renderTabSelect(targetTab?.tabId || null);
+
   autoPlayEnabledEl.checked = settings.autoPlayEnabled;
   autoPauseOnReturnEnabledEl.checked = settings.autoPauseOnReturnEnabled;
   runtimeInfoEl.textContent = sessionCount > 0 ? `활성 세션 ${sessionCount}개` : '활성 세션 없음';
 }
+
+refreshTabsBtn.addEventListener('click', async () => {
+  await refreshUI();
+});
+
+saveSelectedTabBtn.addEventListener('click', async () => {
+  const tabId = Number(tabSelectEl.value);
+  if (!tabId) return;
+  await chrome.runtime.sendMessage({ type: 'SET_TARGET_TAB', tabId });
+  await refreshUI();
+});
 
 setCurrentTabBtn.addEventListener('click', async () => {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const currentTab = tabs[0];
   if (!currentTab?.id) return;
 
-  await setStorage({
-    [STORAGE_KEYS.TARGET_TAB]: {
-      tabId: currentTab.id,
-      windowId: currentTab.windowId,
-      title: currentTab.title || '',
-      url: currentTab.url || ''
-    }
-  });
-
+  await chrome.runtime.sendMessage({ type: 'SET_TARGET_TAB', tabId: currentTab.id });
   await refreshUI();
 });
 
