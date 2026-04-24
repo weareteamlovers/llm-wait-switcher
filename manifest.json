@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LLM Wait Switcher",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Switch to a selected content tab while an AI service is generating, then return automatically when it finishes.",
   "permissions": ["tabs", "storage", "scripting"],
   "host_permissions": [

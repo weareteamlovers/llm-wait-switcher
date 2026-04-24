@@ -5,7 +5,8 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SETTINGS = {
   autoPlayEnabled: true,
-  autoPauseOnReturnEnabled: true
+  autoPauseOnReturnEnabled: true,
+  debugEnabled: false
 };
 
 const targetInfoEl = document.getElementById('targetInfo');
@@ -24,14 +25,6 @@ function escapeHtml(text) {
     .replaceAll("'", '&#39;');
 }
 
-async function getStorage(keys) {
-  return chrome.storage.local.get(keys);
-}
-
-async function setStorage(data) {
-  return chrome.storage.local.set(data);
-}
-
 function isMediaPlatform(url = '') {
   return /youtube\.com|netflix\.com|disneyplus\.com|primevideo\.com|twitch\.tv|vimeo\.com/i.test(url);
 }
@@ -44,6 +37,28 @@ function getTabTypeLabel(url = '') {
   if (isMediaPlatform(url)) return '지원 미디어 탭';
   if (isLlmUrl(url)) return '지원 AI 탭';
   return '일반 탭';
+}
+
+async function getStorage(keys) {
+  return chrome.storage.local.get(keys);
+}
+
+async function setStorage(data) {
+  return chrome.storage.local.set(data);
+}
+
+async function saveSettings(patch) {
+  const data = await getStorage(STORAGE_KEYS.SETTINGS);
+  const previous = {
+    ...DEFAULT_SETTINGS,
+    ...(data[STORAGE_KEYS.SETTINGS] || {})
+  };
+  await setStorage({
+    [STORAGE_KEYS.SETTINGS]: {
+      ...previous,
+      ...patch
+    }
+  });
 }
 
 function renderTargetInfo(targetTab) {
@@ -59,21 +74,6 @@ function renderTargetInfo(targetTab) {
   `;
 }
 
-async function saveSettings(patch) {
-  const data = await getStorage(STORAGE_KEYS.SETTINGS);
-  const previous = {
-    ...DEFAULT_SETTINGS,
-    ...(data[STORAGE_KEYS.SETTINGS] || {})
-  };
-
-  await setStorage({
-    [STORAGE_KEYS.SETTINGS]: {
-      ...previous,
-      ...patch
-    }
-  });
-}
-
 async function refreshUI() {
   const runtimeState = await chrome.runtime.sendMessage({ type: 'GET_RUNTIME_STATE' });
   const targetTab = runtimeState?.targetTab || null;
@@ -84,18 +84,14 @@ async function refreshUI() {
   const sessionCount = Object.keys(runtimeState?.sessions || {}).length;
 
   renderTargetInfo(targetTab);
-
   autoPlayEnabledEl.checked = settings.autoPlayEnabled;
   autoPauseOnReturnEnabledEl.checked = settings.autoPauseOnReturnEnabled;
-
-  runtimeInfoEl.textContent =
-    sessionCount > 0 ? `활성 세션 ${sessionCount}개` : '활성 세션 없음';
+  runtimeInfoEl.textContent = sessionCount > 0 ? `활성 세션 ${sessionCount}개` : '활성 세션 없음';
 }
 
 setCurrentTabBtn.addEventListener('click', async () => {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const currentTab = tabs[0];
-
   if (!currentTab?.id) return;
 
   await setStorage({
@@ -120,9 +116,7 @@ autoPlayEnabledEl.addEventListener('change', async () => {
 });
 
 autoPauseOnReturnEnabledEl.addEventListener('change', async () => {
-  await saveSettings({
-    autoPauseOnReturnEnabled: autoPauseOnReturnEnabledEl.checked
-  });
+  await saveSettings({ autoPauseOnReturnEnabled: autoPauseOnReturnEnabledEl.checked });
 });
 
 refreshUI();
